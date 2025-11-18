@@ -1,0 +1,30 @@
+{
+  "team_color": "red",
+  "ball_priorities": {
+    "black": 200,  
+    "yellow": 150, 
+    "team": 100,   
+    "enemy": 0     
+  },
+  "movement_strategy": "avoid_collision",
+  "auto_mode_duration": 30,  
+  "yellow_rules": {
+    "max_count": 2,
+    "cannot_hold_other": true
+  },
+  "ball_counts": {
+    "red": 4,
+    "blue": 4,
+    "black": 4,
+    "yellow": 2
+  },
+  "vision_params": {
+    "camera_id": 0,
+    "image_width": 640,
+    "image_height": 480,
+    "detection_confidence": 0.8,
+    "tracking_window": 50,
+    "min_ball_radius": 8,  
+    "max_ball_radius": 30   
+  }
+}

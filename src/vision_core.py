@@ -1,0 +1,319 @@
+import cv2
+import json
+import os
+from color_detector import ColorDetector
+from ball_tracker import BallTracker
+
+class VisionCore:
+    def __init__(self, hsv_config_path, strategy_config_path):
+        """
+        视觉核心初始化
+        :param hsv_config_path: HSV阈值配置文件路径
+        :param strategy_config_path: 游戏策略配置文件路径
+        """
+        # 加载配置
+        self.strategy_config = self.load_strategy_config(strategy_config_path)
+        
+        # 初始化摄像头
+        vision_params = self.strategy_config.get('vision_params', {})
+        self.camera_id = vision_params.get('camera_id', 0)
+        
+        # 初始化组件
+        self.color_detector = ColorDetector(hsv_config_path)
+        # 使用配置文件中的小球半径参数
+        min_radius = vision_params.get('min_ball_radius', 10)
+        max_radius = vision_params.get('max_ball_radius', 100)
+        self.ball_tracker = BallTracker(min_radius=min_radius, max_radius=max_radius)
+        self.camera = self.init_camera()
+        
+        # 游戏策略参数
+        self.team_color = self.strategy_config.get('team_color', 'red')
+        self.enemy_color = 'blue' if self.team_color == 'red' else 'red'
+        self.ball_priorities = self.strategy_config.get('ball_priorities', {})
+        self.ball_counts = self.strategy_config.get('ball_counts', {})
+        # 新规则：第一个夹取必须是己方球
+        self.first_pick = True  # 标记是否为第一次夹取
+        
+    def load_strategy_config(self, config_path):
+        """
+        加载游戏策略配置
+        :param config_path: 配置文件路径
+        :return: 策略配置字典
+        """
+        if not os.path.exists(config_path):
+            raise FileNotFoundError(f"策略配置文件不存在: {config_path}")
+        
+        with open(config_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    
+    def init_camera(self):
+        """
+        初始化摄像头
+        :return: 摄像头对象
+        """
+        camera = cv2.VideoCapture(self.camera_id)
+        if not camera.isOpened():
+            raise RuntimeError(f"无法打开摄像头 {self.camera_id}")
+        
+        # 设置摄像头参数
+        vision_params = self.strategy_config.get('vision_params', {})
+        width = vision_params.get('image_width', 640)
+        height = vision_params.get('image_height', 480)
+        
+        camera.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        camera.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        
+        return camera
+    
+    def get_frame(self):
+        """
+        获取摄像头帧
+        :return: BGR图像
+        """
+        ret, frame = self.camera.read()
+        if not ret:
+            raise RuntimeError("无法读取摄像头帧")
+        return frame
+    
+    def detect_all_balls(self, frame):
+        """
+        检测所有小球
+        :param frame: BGR图像
+        :return: 检测到的小球列表
+        """
+        # 检测所有颜色
+        color_masks = self.color_detector.detect_all_colors(frame)
+        
+        # 跟踪小球
+        balls = self.ball_tracker.track_balls(color_masks)
+        
+        return balls
+    
+    def calculate_ball_priority(self, ball):
+        """
+        计算小球优先级
+        :param ball: 小球对象
+        :return: 优先级分数
+        """
+        color = ball['color']
+        
+        # 新规则：不能夹取对方小球
+        if color == self.enemy_color:
+            return 0  # 对方球优先级为0，不被选择
+        
+        # 新规则：第一个夹取必须是己方球
+        if self.first_pick:
+            if color == self.team_color:
+                return 1000  # 给予极高优先级
+            else:
+                return 0  # 其他颜色优先级为0
+        
+        # 正常优先级计算
+        if color == self.team_color:
+            return self.ball_priorities.get('team', 100)
+        else:
+            return self.ball_priorities.get(color, 0)
+    
+    def get_prioritized_balls(self, balls):
+        """
+        获取按优先级排序的小球列表
+        :param balls: 检测到的小球列表
+        :return: 按优先级排序的小球列表
+        """
+        # 计算每个小球的优先级
+        for ball in balls:
+            ball['priority'] = self.calculate_ball_priority(ball)
+        
+        # 按优先级降序排序
+        sorted_balls = sorted(balls, key=lambda x: x['priority'], reverse=True)
+        
+        return sorted_balls
+    
+    def get_best_target(self, balls, current_balls=[]):
+        """
+        获取最佳目标小球
+        :param balls: 检测到的小球列表
+        :param current_balls: 当前已夹取的小球列表（由于每次只夹一个，该参数实际无用，但保留兼容）
+        :return: 最佳目标小球，若没有符合条件的则返回None
+        """
+        if not balls:
+            return None
+        
+        prioritized_balls = self.get_prioritized_balls(balls)
+        
+        # 由于每次只夹取一个小球，且已排除对方球，直接返回最高优先级的球
+        # 黄色球单独转运规则在每次只夹一个的情况下自动满足
+        return prioritized_balls[0] if prioritized_balls[0]['priority'] > 0 else None
+    
+    def set_first_pick_done(self):
+        """
+        标记第一次夹取已完成
+        """
+        self.first_pick = False
+        print("第一次夹取已完成，现在按照正常优先级选择目标")
+    
+    def check_transfer_limit(self, balls, target_ball):
+        """
+        检查一次转移的数量限制（普通球 + 核心球不能超过4个）
+        :param balls: 当前已夹取的小球列表
+        :param target_ball: 目标小球
+        :return: (是否允许夹取, 原因)
+        """
+        # 黄色球单独计算，不参与数量限制
+        if target_ball['color'] == 'yellow' or any(ball['color'] == 'yellow' for ball in balls):
+            return True, ""
+        
+        # 计算当前已夹取的普通球和核心球数量
+        current_count = len([ball for ball in balls if ball['color'] in [self.team_color, 'black']])
+        
+        # 如果目标球是普通球或核心球，检查数量限制
+        if target_ball['color'] in [self.team_color, 'black']:
+            if current_count >= 4:
+                return False, "一次转移不能超过4个普通球+核心球"
+        
+        return True, ""
+    
+    def calculate_score(self, balls, mode='autonomous'):
+        """
+        根据比赛规则计算得分
+        :param balls: 转运的小球列表
+        :param mode: 模式（'autonomous'或'remote'）
+        :return: 得分
+        """
+        score = 0
+        
+        # 得分规则矩阵
+        scores = {
+            'autonomous': {
+                'team': 5,    # 己方普通球
+                'black': 10,  # 核心球
+                'yellow': -5, # 危险球
+                'enemy': -10  # 对方球
+            },
+            'remote': {
+                'team': 2,    # 己方普通球
+                'black': 6,   # 核心球
+                'yellow': -2, # 危险球
+                'enemy': -5   # 对方球
+            }
+        }
+        
+        for ball in balls:
+            color = ball['color']
+            if color == self.team_color:
+                score += scores[mode]['team']
+            elif color == 'black':
+                score += scores[mode]['black']
+            elif color == 'yellow':
+                score += scores[mode]['yellow']
+            elif color == self.enemy_color:
+                score += scores[mode]['enemy']
+        
+        return score
+    
+    def check_yellow_ball_restriction(self, balls, target_ball):
+        """
+        检查黄色球（危险球）的限制条件
+        :param balls: 当前已夹取的小球列表
+        :param target_ball: 目标小球
+        :return: (是否允许夹取, 原因)
+        """
+        # 黄色球必须单独转运
+        if target_ball['color'] == 'yellow':
+            if len(balls) > 0:
+                return False, "黄色球必须单独转运，当前已夹取其他小球"
+            return True, ""
+        
+        # 已夹取黄色球时不能夹取其他小球
+        if any(ball['color'] == 'yellow' for ball in balls):
+            return False, "已夹取黄色球，不能同时夹取其他小球"
+        
+        return True, ""
+    
+    def process_frame(self, frame):
+        """
+        处理单帧图像
+        :param frame: BGR图像
+        :return: 处理结果（带标注的图像、检测到的小球、最佳目标）
+        """
+        # 检测小球
+        balls = self.detect_all_balls(frame)
+        
+        # 获取最佳目标
+        best_target = self.get_best_target(balls)
+        
+        # 绘制结果
+        annotated_frame = self.ball_tracker.draw_balls(frame, balls)
+        
+        # 标记最佳目标
+        if best_target:
+            center = (best_target['x'], best_target['y'])
+            radius = best_target['radius']
+            # 绘制红色边框表示最佳目标
+            cv2.circle(annotated_frame, center, radius + 5, (0, 0, 255), 3)
+            cv2.putText(annotated_frame, "TARGET", (center[0] - 30, center[1] + radius + 20),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+        
+        return {
+            'frame': annotated_frame,
+            'balls': balls,
+            'best_target': best_target
+        }
+    
+    def run(self, display=True, save_video=False, output_path=None):
+        """
+        运行视觉系统
+        :param display: 是否显示图像
+        :param save_video: 是否保存视频
+        :param output_path: 视频保存路径
+        """
+        video_writer = None
+        
+        try:
+            while True:
+                # 获取帧
+                frame = self.get_frame()
+                
+                # 处理帧
+                result = self.process_frame(frame)
+                
+                # 保存视频
+                if save_video:
+                    if video_writer is None:
+                        # 创建视频写入器
+                        fourcc = cv2.VideoWriter_fourcc(*'XVID')
+                        fps = self.camera.get(cv2.CAP_PROP_FPS)
+                        size = (result['frame'].shape[1], result['frame'].shape[0])
+                        video_writer = cv2.VideoWriter(output_path, fourcc, fps, size)
+                    video_writer.write(result['frame'])
+                
+                # 显示图像
+                if display:
+                    cv2.imshow('Rescue Vision', result['frame'])
+                    
+                    # 按下'q'键退出
+                    if cv2.waitKey(1) & 0xFF == ord('q'):
+                        break
+                
+                # 输出检测结果
+                print(f"检测到 {len(result['balls'])} 个小球")
+                if result['best_target']:
+                    print(f"最佳目标: {result['best_target']['color']} 球 - 位置 ({result['best_target']['x']}, {result['best_target']['y']})")
+        
+        except KeyboardInterrupt:
+            print("视觉系统已停止")
+        
+        finally:
+            # 释放资源
+            self.camera.release()
+            if video_writer:
+                video_writer.release()
+            if display:
+                cv2.destroyAllWindows()
+    
+    def __del__(self):
+        """
+        析构函数，释放摄像头资源
+        """
+        if hasattr(self, 'camera'):
+            self.camera.release()

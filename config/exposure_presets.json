@@ -1,0 +1,20 @@
+{
+    "bright_environment": {
+        "exposure": -6,
+        "brightness": 0.1,
+        "contrast": 0.3,
+        "gain": 0
+    },
+    "normal_environment": {
+        "exposure": -4, 
+        "brightness": 0.2,
+        "contrast": 0.2,
+        "gain": 1
+    },
+    "dim_environment": {
+        "exposure": -2,
+        "brightness": 0.3, 
+        "contrast": 0.4,
+        "gain": 2
+    }
+}
