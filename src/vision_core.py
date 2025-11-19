@@ -155,7 +155,19 @@ class VisionCore:
         if not balls:
             return None
         
-        prioritized_balls = self.get_prioritized_balls(balls)
+        # 过滤掉安全区内的小球
+        filtered_balls = []
+        for ball in balls:
+            if not self.is_ball_in_safety_zone(ball):
+                filtered_balls.append(ball)
+            else:
+                print(f"小球 (颜色: {ball['color']}, 坐标: ({ball['x']}, {ball['y']})) 在安全区内，将被过滤掉")
+        
+        if not filtered_balls:
+            print("所有检测到的小球都在安全区内")
+            return None
+        
+        prioritized_balls = self.get_prioritized_balls(filtered_balls)
         
         # 由于每次只夹取一个小球，且已排除对方球，直接返回最高优先级的球
         # 黄色球单独转运规则在每次只夹一个的情况下自动满足
@@ -363,6 +375,9 @@ class VisionCore:
         
         # 绘制结果
         annotated_frame = self.ball_tracker.draw_balls(frame, balls)
+        
+        # 绘制安全区
+        annotated_frame = self.draw_safety_zone(annotated_frame)
         
         # 标记最佳目标
         if best_target:
