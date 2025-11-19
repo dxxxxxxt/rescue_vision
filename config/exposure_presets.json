@@ -1,20 +1,34 @@
 {
-    "bright_environment": {
-        "exposure": -6,
-        "brightness": 0.1,
-        "contrast": 0.3,
-        "gain": 0
+    "competition": {
+        "exposure": -3,
+        "brightness": 0.25,
+        "contrast": 0.7,
+        "saturation": 0.8,
+        "gain": 0,
+        "sharpness": 0.6
     },
-    "normal_environment": {
-        "exposure": -4, 
-        "brightness": 0.2,
-        "contrast": 0.2,
-        "gain": 1
+    "competition_bright": {
+        "exposure": -5,
+        "brightness": 0.15,
+        "contrast": 0.8,
+        "saturation": 0.7,
+        "gain": 0,
+        "sharpness": 0.7
     },
-    "dim_environment": {
-        "exposure": -2,
-        "brightness": 0.3, 
-        "contrast": 0.4,
-        "gain": 2
+    "competition_dim": {
+        "exposure": -1,
+        "brightness": 0.35,
+        "contrast": 0.9,
+        "saturation": 0.9,
+        "gain": 1,
+        "sharpness": 0.5
+    },
+    "competition_dark": {
+        "exposure": 0,
+        "brightness": 0.45,
+        "contrast": 1.0,
+        "saturation": 1.0,
+        "gain": 2,
+        "sharpness": 0.4
     }
 }

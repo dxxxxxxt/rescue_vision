@@ -1,6 +1,7 @@
 import cv2
 import json
 import os
+import numpy as np
 from color_detector import ColorDetector
 from ball_tracker import BallTracker
 
@@ -17,6 +18,8 @@ class VisionCore:
         # 初始化摄像头
         vision_params = self.strategy_config.get('vision_params', {})
         self.camera_id = vision_params.get('camera_id', 0)
+        self.image_width = vision_params.get('image_width', 640)
+        self.image_height = vision_params.get('image_height', 480)
         
         # 初始化组件
         self.color_detector = ColorDetector(hsv_config_path)
@@ -33,6 +36,19 @@ class VisionCore:
         self.ball_counts = self.strategy_config.get('ball_counts', {})
         # 新规则：第一个夹取必须是己方球
         self.first_pick = True  # 标记是否为第一次夹取
+        
+        # 安全区配置
+        self.safety_zone = self.strategy_config.get('safety_zone', {
+            'enabled': True,
+            'type': 'right_triangle',
+            'points': [
+                {'x': 0.8, 'y': 0.2},  # 顶点A (相对于图像尺寸的比例)
+                {'x': 1.0, 'y': 0.2},  # 顶点B
+                {'x': 1.0, 'y': 1.0}   # 顶点C
+            ]
+        })
+        # 转换比例坐标为实际像素坐标
+        self._convert_safety_zone_points()
         
     def load_strategy_config(self, config_path):
         """
@@ -229,6 +245,109 @@ class VisionCore:
             return False, "已夹取黄色球，不能同时夹取其他小球"
         
         return True, ""
+    
+    def _convert_safety_zone_points(self):
+        """
+        将安全区的比例坐标转换为实际像素坐标
+        """
+        if not self.safety_zone.get('enabled', False):
+            return
+        
+        try:
+            points = self.safety_zone.get('points', [])
+            self.safety_zone['pixel_points'] = []
+            
+            for point in points:
+                # 将比例坐标转换为像素坐标
+                pixel_x = int(point['x'] * self.image_width)
+                pixel_y = int(point['y'] * self.image_height)
+                self.safety_zone['pixel_points'].append((pixel_x, pixel_y))
+            
+            print(f"安全区配置: {self.safety_zone['type']}")
+            print(f"安全区像素坐标: {self.safety_zone['pixel_points']}")
+            
+        except Exception as e:
+            print(f"转换安全区坐标失败: {e}")
+            self.safety_zone['enabled'] = False
+    
+    def is_ball_in_safety_zone(self, ball):
+        """
+        检测小球是否在安全区内
+        :param ball: 小球对象，包含x, y坐标
+        :return: True表示在安全区内，False表示不在
+        """
+        if not self.safety_zone.get('enabled', False):
+            return False
+        
+        try:
+            ball_point = (ball['x'], ball['y'])
+            points = self.safety_zone['pixel_points']
+            
+            # 检查小球是否在三角形安全区内
+            if self.safety_zone['type'] == 'right_triangle' and len(points) >= 3:
+                # 使用向量叉积法判断点是否在三角形内
+                A, B, C = points
+                
+                # 计算向量
+                v0 = (C[0] - A[0], C[1] - A[1])
+                v1 = (B[0] - A[0], B[1] - A[1])
+                v2 = (ball_point[0] - A[0], ball_point[1] - A[1])
+                
+                # 计算叉积
+                dot00 = v0[0] * v0[0] + v0[1] * v0[1]
+                dot01 = v0[0] * v1[0] + v0[1] * v1[1]
+                dot02 = v0[0] * v2[0] + v0[1] * v2[1]
+                dot11 = v1[0] * v1[0] + v1[1] * v1[1]
+                dot12 = v1[0] * v2[0] + v1[1] * v2[1]
+                
+                # 计算重心坐标
+                invDenom = 1 / (dot00 * dot11 - dot01 * dot01)
+                u = (dot11 * dot02 - dot01 * dot12) * invDenom
+                v = (dot00 * dot12 - dot01 * dot02) * invDenom
+                
+                # 检查点是否在三角形内
+                return (u >= 0) and (v >= 0) and (u + v < 1)
+            
+            return False
+            
+        except Exception as e:
+            print(f"检测安全区失败: {e}")
+            return False
+    
+    def draw_safety_zone(self, frame):
+        """
+        在图像上绘制安全区
+        :param frame: 输入图像
+        :return: 绘制了安全区的图像
+        """
+        if not self.safety_zone.get('enabled', False) or 'pixel_points' not in self.safety_zone:
+            return frame
+        
+        try:
+            points = self.safety_zone['pixel_points']
+            
+            # 绘制三角形安全区
+            if self.safety_zone['type'] == 'right_triangle' and len(points) >= 3:
+                # 转换为numpy数组
+                triangle_points = np.array(points, np.int32)
+                triangle_points = triangle_points.reshape((-1, 1, 2))
+                
+                # 绘制半透明三角形
+                overlay = frame.copy()
+                cv2.fillPoly(overlay, [triangle_points], (0, 0, 255, 128))
+                frame = cv2.addWeighted(overlay, 0.3, frame, 0.7, 0)
+                
+                # 绘制三角形边框
+                cv2.polylines(frame, [triangle_points], isClosed=True, color=(0, 0, 255), thickness=2)
+                
+                # 添加安全区文字说明
+                cv2.putText(frame, "SAFETY ZONE", (points[0][0] - 60, points[0][1] - 10),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+        
+        except Exception as e:
+            print(f"绘制安全区失败: {e}")
+        
+        return frame
     
     def process_frame(self, frame):
         """
