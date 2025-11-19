@@ -23,8 +23,34 @@
     "image_width": 640,
     "image_height": 480,
     "detection_confidence": 0.8,
-    "tracking_window": 50,
-    "min_ball_radius": 8,  
-    "max_ball_radius": 30   
-  }
+    "tracking_window": 30,
+    "min_ball_radius": 10,  
+    "max_ball_radius": 40   
+  },
+  "safety_zones": [
+    {
+      "name": "blue_safety_zone",
+      "color": [255, 0, 0],
+      "enabled": true,
+      "type": "rectangle",
+      "position": {
+        "x": 0.7,
+        "y": 0.1,
+        "width": 0.3,
+        "height": 0.4
+      }
+    },
+    {
+      "name": "red_safety_zone",
+      "color": [0, 0, 255],
+      "enabled": true,
+      "type": "rectangle",
+      "position": {
+        "x": 0.7,
+        "y": 0.5,
+        "width": 0.3,
+        "height": 0.4
+      }
+    }
+  ]
 }
