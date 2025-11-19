@@ -19,25 +19,29 @@
 
 ```
 rescue_vision/
-├── config/               # 配置文件目录
-│   ├── hsv_thresholds.json  # HSV颜色阈值配置
-│   └── game_strategy.json   # 游戏策略配置
-├── src/                  # 源代码目录
-│   ├── color_detector.py    # 颜色检测模块
-│   ├── ball_tracker.py      # 小球跟踪模块
-│   ├── vision_core.py       # 视觉核心模块
-│   └── main.py              # 主程序入口
-|   ├── camera_manager.py    # 摄像头管理
-|   └── config_loader.py     # 配置加载器
-├── docs/                  # 文档
-|   ├── 开发日志.md           # 开发日志
-│   ├── 比赛规则分析.md       # 规则解读
-│   └── 技术方案.md           # 技术设计文档 
-├── scripts/                # 脚本目录
-│   ├── start_dev.sh            # 开发环境启动脚本
-│   ├── run_tests.sh            # 测试运行脚本
-│   └── deploy.sh               # 部署脚本（后期使用）  
-└── README.md             # 项目说明文档
+├── config/                   # 配置文件目录
+│   ├── hsv_thresholds.json     # HSV颜色阈值配置
+│   ├── game_strategy.json      # 游戏策略配置
+│   └── exposure_presets.json   # 摄像头曝光预设配置
+├── src/                      # 源代码目录
+│   ├── color_detector.py       # 颜色检测模块
+│   ├── ball_tracker.py         # 小球跟踪模块
+│   ├── vision_core.py          # 视觉核心模块
+│   ├── main.py                 # 主程序入口
+│   ├── camera_manager.py       # 摄像头管理模块
+│   ├── config_loader.py        # 配置加载器模块
+│   ├── open_camera.py          # 摄像头打开测试工具
+│   └── text_camera_baoguanshu.py  # 摄像头参数调节工具
+├── docs/                     # 文档目录
+│   ├── 开发日志.md              # 开发日志
+│   ├── 比赛规则分析.md          # 规则解读
+│   └── 技术方案.md              # 技术设计文档  
+├── texts/                    # 测试脚本目录
+│   ├── test_color_detector.py     # 颜色检测测试
+│   ├── test_advanced_color_detection.py  # 高级颜色检测测试
+│   ├── test_edge_cases.py         # 边缘情况测试
+│   └── text_yuzhi.py              # 阈值调整工具
+└── README.md                 # 项目说明文档
 ```
 
 
