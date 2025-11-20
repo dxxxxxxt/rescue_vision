@@ -37,14 +37,13 @@ class VisionCore:
         # 新规则：第一个夹取必须是己方球
         self.first_pick = True  # 标记是否为第一次夹取
         
-        # 安全区配置
+        # 安全区配置 - 改为600*300的长方形
         self.safety_zone = self.strategy_config.get('safety_zone', {
             'enabled': True,
-            'type': 'right_triangle',
+            'type': 'rectangle',
             'points': [
-                {'x': 0.8, 'y': 0.2},  # 顶点A (相对于图像尺寸的比例)
-                {'x': 1.0, 'y': 0.2},  # 顶点B
-                {'x': 1.0, 'y': 1.0}   # 顶点C
+                {'x': 0.0, 'y': 0.0},  # 左上角 (相对于图像尺寸的比例)
+                {'x': 600/self.image_width, 'y': 300/self.image_height}  # 右下角 (固定600*300像素)
             ]
         })
         # 转换比例坐标为实际像素坐标
@@ -295,30 +294,15 @@ class VisionCore:
             ball_point = (ball['x'], ball['y'])
             points = self.safety_zone['pixel_points']
             
-            # 检查小球是否在三角形安全区内
-            if self.safety_zone['type'] == 'right_triangle' and len(points) >= 3:
-                # 使用向量叉积法判断点是否在三角形内
-                A, B, C = points
+            # 检查小球是否在长方形安全区内
+            if self.safety_zone['type'] == 'rectangle' and len(points) >= 2:
+                # 矩形由左上角和右下角两个点定义
+                top_left = points[0]
+                bottom_right = points[1]
                 
-                # 计算向量
-                v0 = (C[0] - A[0], C[1] - A[1])
-                v1 = (B[0] - A[0], B[1] - A[1])
-                v2 = (ball_point[0] - A[0], ball_point[1] - A[1])
-                
-                # 计算叉积
-                dot00 = v0[0] * v0[0] + v0[1] * v0[1]
-                dot01 = v0[0] * v1[0] + v0[1] * v1[1]
-                dot02 = v0[0] * v2[0] + v0[1] * v2[1]
-                dot11 = v1[0] * v1[0] + v1[1] * v1[1]
-                dot12 = v1[0] * v2[0] + v1[1] * v2[1]
-                
-                # 计算重心坐标
-                invDenom = 1 / (dot00 * dot11 - dot01 * dot01)
-                u = (dot11 * dot02 - dot01 * dot12) * invDenom
-                v = (dot00 * dot12 - dot01 * dot02) * invDenom
-                
-                # 检查点是否在三角形内
-                return (u >= 0) and (v >= 0) and (u + v < 1)
+                # 检查点是否在矩形范围内
+                return (top_left[0] <= ball_point[0] <= bottom_right[0]) and \
+                       (top_left[1] <= ball_point[1] <= bottom_right[1])
             
             return False
             
@@ -338,22 +322,22 @@ class VisionCore:
         try:
             points = self.safety_zone['pixel_points']
             
-            # 绘制三角形安全区
-            if self.safety_zone['type'] == 'right_triangle' and len(points) >= 3:
-                # 转换为numpy数组
-                triangle_points = np.array(points, np.int32)
-                triangle_points = triangle_points.reshape((-1, 1, 2))
+            # 绘制长方形安全区
+            if self.safety_zone['type'] == 'rectangle' and len(points) >= 2:
+                # 矩形由左上角和右下角两个点定义
+                top_left = points[0]
+                bottom_right = points[1]
                 
-                # 绘制半透明三角形
+                # 绘制半透明矩形
                 overlay = frame.copy()
-                cv2.fillPoly(overlay, [triangle_points], (0, 0, 255, 128))
+                cv2.rectangle(overlay, top_left, bottom_right, (0, 0, 255), -1)
                 frame = cv2.addWeighted(overlay, 0.3, frame, 0.7, 0)
                 
-                # 绘制三角形边框
-                cv2.polylines(frame, [triangle_points], isClosed=True, color=(0, 0, 255), thickness=2)
+                # 绘制矩形边框
+                cv2.rectangle(frame, top_left, bottom_right, (0, 0, 255), 2)
                 
                 # 添加安全区文字说明
-                cv2.putText(frame, "SAFETY ZONE", (points[0][0] - 60, points[0][1] - 10),
+                cv2.putText(frame, "SAFETY ZONE", (top_left[0] + 10, top_left[1] - 10),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
         
         except Exception as e:
