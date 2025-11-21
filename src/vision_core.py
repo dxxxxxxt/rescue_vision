@@ -29,6 +29,9 @@ class VisionCore:
         self.ball_tracker = BallTracker(min_radius=min_radius, max_radius=max_radius)
         self.camera = self.init_camera()
         
+        # 初始化视频编写器
+        self.video_writer = None
+        
         # 游戏策略参数
         self.team_color = self.strategy_config.get('team_color', 'red')
         self.enemy_color = 'blue' if self.team_color == 'red' else 'red'
@@ -37,7 +40,7 @@ class VisionCore:
         # 新规则：第一个夹取必须是己方球
         self.first_pick = True  # 标记是否为第一次夹取
         
-        # 安全区配置 - 改为600*300的长方形
+        # 安全区配置 - 为600*300的长方形
         self.safety_zone = self.strategy_config.get('safety_zone', {
             'enabled': True,
             'type': 'rectangle',
@@ -64,30 +67,68 @@ class VisionCore:
     def init_camera(self):
         """
         初始化摄像头
-        :return: 摄像头对象
+        
+        Raises:
+            RuntimeError: 当无法初始化摄像头时抛出异常
+        
+        Returns:
+            camera: 初始化好的摄像头对象
         """
-        camera = cv2.VideoCapture(self.camera_id)
-        if not camera.isOpened():
-            raise RuntimeError(f"无法打开摄像头 {self.camera_id}")
-        
-        # 设置摄像头参数
-        vision_params = self.strategy_config.get('vision_params', {})
-        width = vision_params.get('image_width', 640)
-        height = vision_params.get('image_height', 480)
-        
-        camera.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-        camera.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-        
-        return camera
+        try:
+            camera = cv2.VideoCapture(self.camera_id)
+            # 设置摄像头参数
+            vision_params = self.strategy_config.get('vision_params', {})
+            width = vision_params.get('image_width', 640)
+            height = vision_params.get('image_height', 480)
+            
+            camera.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+            camera.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+            
+            if not camera.isOpened():
+                raise RuntimeError(f"无法打开摄像头 {self.camera_id}，请检查设备连接")
+                
+            print(f"摄像头已成功初始化，ID: {self.camera_id}")
+            return camera
+            
+        except Exception as e:
+            raise RuntimeError(f"初始化摄像头失败: {str(e)}")
     
     def get_frame(self):
         """
-        获取摄像头帧
-        :return: BGR图像
+        获取摄像头当前帧
+        
+        Returns:
+            frame: 摄像头图像帧
+            
+        Raises:
+            RuntimeError: 当无法获取有效帧时抛出异常
         """
+        import time
+        
+        if not self.camera.isOpened():
+            # 尝试重新打开摄像头
+            try:
+                self.camera.release()
+                self.camera = cv2.VideoCapture(self.camera_id)
+                # 设置摄像头参数
+                vision_params = self.strategy_config.get('vision_params', {})
+                width = vision_params.get('image_width', 640)
+                height = vision_params.get('image_height', 480)
+                self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+                self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+                time.sleep(0.2)  # 给摄像头一些初始化时间
+                
+                if not self.camera.isOpened():
+                    raise RuntimeError("摄像头无法打开，请检查设备连接")
+                
+            except Exception as e:
+                raise RuntimeError(f"重新打开摄像头失败: {str(e)}")
+        
+        # 获取帧
         ret, frame = self.camera.read()
-        if not ret:
-            raise RuntimeError("无法读取摄像头帧")
+        if not ret or frame is None:
+            raise RuntimeError("无法获取摄像头帧，请检查摄像头")
+        
         return frame
     
     def detect_all_balls(self, frame):
@@ -112,11 +153,11 @@ class VisionCore:
         """
         color = ball['color']
         
-        # 新规则：不能夹取对方小球
+        # 不能夹取对方小球
         if color == self.enemy_color:
             return 0  # 对方球优先级为0，不被选择
         
-        # 新规则：第一个夹取必须是己方球
+        # 第一个夹取必须是己方球
         if self.first_pick:
             if color == self.team_color:
                 return 1000  # 给予极高优先级
@@ -385,7 +426,7 @@ class VisionCore:
         :param save_video: 是否保存视频
         :param output_path: 视频保存路径
         """
-        video_writer = None
+        self.video_writer = None
         
         try:
             while True:
@@ -397,13 +438,13 @@ class VisionCore:
                 
                 # 保存视频
                 if save_video:
-                    if video_writer is None:
+                    if self.video_writer is None:
                         # 创建视频写入器
                         fourcc = cv2.VideoWriter_fourcc(*'XVID')
                         fps = self.camera.get(cv2.CAP_PROP_FPS)
                         size = (result['frame'].shape[1], result['frame'].shape[0])
-                        video_writer = cv2.VideoWriter(output_path, fourcc, fps, size)
-                    video_writer.write(result['frame'])
+                        self.video_writer = cv2.VideoWriter(output_path, fourcc, fps, size)
+                    self.video_writer.write(result['frame'])
                 
                 # 显示图像
                 if display:
@@ -428,6 +469,24 @@ class VisionCore:
                 video_writer.release()
             if display:
                 cv2.destroyAllWindows()
+    
+    def release(self):
+        """
+        释放资源
+        """
+        try:
+            if hasattr(self, 'camera') and self.camera is not None:
+                self.camera.release()
+                print("摄像头资源已释放")
+            
+            if hasattr(self, 'video_writer') and self.video_writer is not None:
+                self.video_writer.release()
+                self.video_writer = None
+                print("视频保存完成")
+            
+            cv2.destroyAllWindows()
+        except Exception as e:
+            print(f"释放资源时发生错误: {str(e)}")
     
     def __del__(self):
         """
