@@ -26,10 +26,13 @@ CATCH_AREA: Tuple[int, int, int, int] = (150, 400, 500, 470)     # 夹取区域
 READY_AREA: Tuple[int, int, int, int] = (100, 150, 550, 400)     # 准备区域
 HOLDING_AREA: Tuple[int, int, int, int] = (250, 350, 400, 470)   # 持有区域
 
-# 硬件控制参数
-CATCH_ANGLE: Tuple[int, int] = (90, 90)       # 夹取角度
-RELEASE_ANGLE: Tuple[int, int] = (0, 0)       # 释放角度
-UART_PORT: str = "/dev/ttyUSB0" if os.name != "nt" else "COM3"  # 串口端口（跨平台兼容）
+# 视觉系统配置
+UART_PORT: str = "/dev/ttyUSB0" if os.name != "nt" else "COM1"  # 串口端口（跨平台兼容）
+
+# ==================== 电控系统相关参数（由电控负责人配置）====================
+# 注意：以下参数由电控系统负责，视觉系统不直接使用
+# CATCH_ANGLE: Tuple[int, int] = (90, 90)       # 夹取角度
+# RELEASE_ANGLE: Tuple[int, int] = (0, 0)       # 释放角度
 
 # ==================== 从JSON加载配置 ====================
 class ConfigLoader:

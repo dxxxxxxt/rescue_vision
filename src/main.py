@@ -12,16 +12,14 @@ def main():
     hsv_config_path = os.path.join(PROJECT_ROOT, 'config', 'hsv_thresholds.json')
     strategy_config_path = os.path.join(PROJECT_ROOT, 'config', 'game_strategy.json')
     
-    # 设置队伍颜色（根据抽签结果修改这一行！）
-    team_color = 'red'  # 比赛抽签后：改为 'red' 或 'blue'
-    
     print("启动智能救援小车视觉与控制系统...")
-    print(f"设置队伍颜色: {team_color}")
     
-    # 初始化视觉核心
+    # 初始化视觉核心 - 队伍颜色直接从配置文件读取，无需在此处设置
+    # 如需修改队伍颜色，请修改：config/game_strategy.json 中的 "team_color" 字段
     vision_core = VisionCore(hsv_config_path, strategy_config_path)
-    # 更新视觉核心的队伍颜色
-    vision_core.team_color = team_color
+    team_color = vision_core.team_color
+    print(f"从配置文件读取队伍颜色: {team_color}")
+    # 敌方颜色自动根据队伍颜色设置
     vision_core.enemy_color = 'blue' if team_color == 'red' else 'red'
     
     # 初始化串口通信 - 使用新的VisionSerial类
