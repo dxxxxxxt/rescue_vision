@@ -52,6 +52,7 @@ class SerialDebugger:
         self.END_BYTE = 0xBB
         self.CMD_GRAB = 0x01
         self.CMD_PLACE = 0x02
+        self.CMD_ROTATION = 0x03
         
         # 命令历史记录
         self.command_history = []
@@ -189,6 +190,8 @@ class SerialDebugger:
                     print("命令说明: 抓取/释放反馈")
                 elif cmd_type == self.CMD_PLACE:
                     print("命令说明: 放置反馈")
+                elif cmd_type == self.CMD_ROTATION:
+                    print("命令说明: 旋转命令反馈")
                 else:
                     print(f"命令说明: 未知命令 0x{cmd_type:02X}")
             else:
@@ -239,8 +242,9 @@ class SerialDebugger:
         packet.extend(dx_bytes)
         packet.extend(dy_bytes)
         
-        # 添加球颜色 (0=red)
-        color_id = 0 if ball_color == "red" else 1
+        # 添加球颜色 (0=red, 1=blue, 2=yellow, 3=black)
+        color_to_id = {"red": 0, "blue": 1, "yellow": 2, "black": 3}
+        color_id = color_to_id.get(ball_color, 0)
         packet.append(color_id)
         
         # 添加距离
@@ -272,6 +276,34 @@ class SerialDebugger:
         command = bytes([0xAA, 0x02, position, checksum, 0xBB])
         
         print(f"发送放置命令，位置: {position}")
+        return self.send_data(command)
+    
+    def send_rotation_command(self, rotation_speed):
+        """
+        发送旋转命令
+        
+        Args:
+            rotation_speed: 旋转速度百分比值，范围为-100到100
+                           正数表示顺时针旋转，负数表示逆时针旋转
+                           绝对值表示旋转速度的百分比
+        """
+        # 验证并处理旋转速度值
+        speed_value = int(rotation_speed)
+        # 确保速度值在有效范围内
+        speed_value = max(-100, min(100, speed_value))
+        
+        # 将-100到100的范围映射到0-200
+        # 0表示-100(逆时针最大速度)，100表示停止，200表示100(顺时针最大速度)
+        mapped_value = speed_value + 100
+        
+        # 计算校验和
+        checksum = (self.CMD_ROTATION + mapped_value) & 0xFF
+        
+        # 构建命令包
+        command = bytes([0xAA, self.CMD_ROTATION, mapped_value, checksum, 0xBB])
+        
+        direction = "顺时针" if speed_value > 0 else "逆时针" if speed_value < 0 else "停止"
+        print(f"发送旋转命令: {direction}，速度: {abs(speed_value)}%")
         return self.send_data(command)
     
     def send_test_ball_data(self, color="red", x=320, y=240, radius=20):
@@ -348,6 +380,10 @@ class SerialDebugger:
         self.send_grab_command(True)
         time.sleep(0.5)
         
+        # 测试旋转命令
+        self.send_rotation_command(50)  # 顺时针旋转50%
+        time.sleep(0.5)
+        
         self.send_place_command(1)
         time.sleep(0.5)
         
@@ -366,9 +402,10 @@ class SerialDebugger:
         print("4. 发送停止命令")
         print("5. 发送抓取命令")
         print("6. 发送放置命令")
-        print("7. 发送测试球数据")
-        print("8. 运行测试序列")
-        print("9. 发送自定义数据")
+        print("7. 发送旋转命令")
+        print("8. 发送测试球数据")
+        print("9. 运行测试序列")
+        print("10. 发送自定义数据")
         print("0. 退出")
         print("="*50)
     
@@ -434,6 +471,13 @@ class SerialDebugger:
                 print("请输入有效的数字")
         
         elif cmd == "7":
+            try:
+                speed = int(input("请输入旋转速度(-100到100，正数为顺时针，负数为逆时针): ") or "0")
+                self.send_rotation_command(speed)
+            except ValueError:
+                print("请输入有效的数字")
+        
+        elif cmd == "8":
             color = input("请输入球颜色 (red/blue/yellow/black, 默认red): ").lower() or "red"
             if color not in ["red", "blue", "yellow", "black"]:
                 color = "red"
@@ -447,10 +491,10 @@ class SerialDebugger:
             except ValueError:
                 print("请输入有效的数字")
         
-        elif cmd == "8":
+        elif cmd == "9":
             self.run_test_sequence()
         
-        elif cmd == "9":
+        elif cmd == "10":
             try:
                 # 输入格式: AA 01 02 BB (空格分隔的十六进制字节)
                 hex_str = input("请输入要发送的十六进制数据 (空格分隔，如 'AA 01 02 BB'): ")
@@ -476,7 +520,7 @@ class SerialDebugger:
             
             while True:
                 self.print_menu()
-                cmd = input("请输入命令 (0-9): ")
+                cmd = input("请输入命令 (0-10): ")
                 if not self.handle_command(cmd):
                     break
         

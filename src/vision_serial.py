@@ -22,6 +22,13 @@ class VisionSerial:
         self.ser = None
         self.is_connected = False
         
+        # 通信协议常量
+        self.START_BYTE = 0xAA
+        self.END_BYTE = 0xBB
+        self.CMD_GRAB = 0x01
+        self.CMD_PLACE = 0x02
+        self.CMD_ROTATION = 0x03
+        
         # 小球颜色映射
         self.color_to_id = {
             'red': 0,     # 红色小球
@@ -192,7 +199,7 @@ class VisionSerial:
             
             # 构建数据包
             packet = bytearray()
-            packet.append(0xAA)  # 起始字节
+            packet.append(self.START_BYTE)  # 起始字节
             
             # dx, dy, ball_id, distance
             dx_bytes = dx.to_bytes(2, byteorder='little', signed=True)
@@ -202,12 +209,15 @@ class VisionSerial:
             packet.extend(dy_bytes)
             
             packet.append(ball_id)
-            packet.append(0x00)  # 预留字节
             
             distance_bytes = distance.to_bytes(2, byteorder='little', signed=False)
             packet.extend(distance_bytes)
             
-            packet.append(0xBB)  # 结束字节
+            # 计算校验和
+            checksum = sum(packet[1:]) & 0xFF
+            packet.append(checksum)
+            
+            packet.append(self.END_BYTE)  # 结束字节
             
             # 发送数据
             self.ser.write(packet)
@@ -385,20 +395,47 @@ class VisionSerial:
                 self.logger.debug(f"接收到原始数据: {data.hex()}")
                 
                 # 简单的数据解析逻辑
-                # 假设数据格式: [0xAA, 命令类型, 参数1, 参数2, 校验和, 0xBB]
-                if len(data) >= 6 and data[0] == 0xAA and data[-1] == 0xBB:
+                # 数据格式: [0xAA, 命令类型, 参数, 校验和, 0xBB]
+                if len(data) >= 5 and data[0] == self.START_BYTE and data[-1] == self.END_BYTE:
                     cmd_type = data[1]
-                    params = data[2:-2]  # 排除起始、命令类型、校验和和结束字节
                     checksum = data[-2]
+                    params = data[2:-2]  # 排除起始、命令类型、校验和和结束字节
                     
-                    # 简单校验
+                    # 计算校验和
                     calculated_checksum = sum(data[1:-2]) & 0xFF
+                    
+                    # 校验和验证
                     if calculated_checksum == checksum:
-                        # 返回解析后的数据
-                        return {
-                            "cmd_type": cmd_type,
-                            "params": params
-                        }
+                        # 解析命令类型
+                        if cmd_type == self.CMD_GRAB and len(params) == 1:
+                            # 抓取命令反馈
+                            status = params[0]
+                            return {
+                                'type': 'grab',
+                                'status': 'success' if status == 1 else 'failed'
+                            }
+                        elif cmd_type == self.CMD_PLACE and len(params) == 1:
+                            # 放置命令反馈
+                            status = params[0]
+                            return {
+                                'type': 'place',
+                                'status': 'success' if status == 1 else 'failed',
+                                'position': status
+                            }
+                        elif cmd_type == self.CMD_ROTATION and len(params) == 1:
+                            # 旋转命令反馈
+                            status = params[0]
+                            return {
+                                'type': 'rotation',
+                                'status': 'success' if status == 1 else 'failed',
+                                'speed': status - 100  # 从映射值转换回速度百分比
+                            }
+                        else:
+                            # 返回通用格式
+                            return {
+                                "cmd_type": cmd_type,
+                                "params": params
+                            }
                     else:
                         self.logger.warning(f"校验和错误，接收到: {checksum}, 计算: {calculated_checksum}")
                 else:
@@ -420,13 +457,11 @@ class VisionSerial:
             return False
             
         try:
-            # 构建抓取命令数据包 [0xAA, 0x01, 抓取标志, 校验和, 0xBB]
-            # 0x01: 抓取命令类型
-            # 抓取标志: 1=抓取, 0=释放
+            # 构建抓取命令数据包 [START_BYTE, CMD_GRAB, 抓取标志, 校验和, END_BYTE]
             flag = 1 if grab else 0
-            checksum = (0x01 + flag) & 0xFF
+            checksum = (self.CMD_GRAB + flag) & 0xFF
             
-            command = bytes([0xAA, 0x01, flag, checksum, 0xBB])
+            command = bytes([self.START_BYTE, self.CMD_GRAB, flag, checksum, self.END_BYTE])
             self.ser.write(command)
             self.logger.info(f"发送抓取命令: {'抓取' if grab else '释放'}")
             return True
@@ -445,13 +480,11 @@ class VisionSerial:
             return False
             
         try:
-            # 构建放置命令数据包 [0xAA, 0x02, 位置信息, 校验和, 0xBB]
-            # 0x02: 放置命令类型
-            # 位置信息: 0=默认位置, 1-4=特定区域位置
+            # 构建放置命令数据包 [START_BYTE, CMD_PLACE, 位置信息, 校验和, END_BYTE]
             pos_value = 0 if position is None else position
-            checksum = (0x02 + pos_value) & 0xFF
+            checksum = (self.CMD_PLACE + pos_value) & 0xFF
             
-            command = bytes([0xAA, 0x02, pos_value, checksum, 0xBB])
+            command = bytes([self.START_BYTE, self.CMD_PLACE, pos_value, checksum, self.END_BYTE])
             self.ser.write(command)
             self.logger.info(f"发送放置命令，位置: {pos_value}")
             return True
@@ -486,10 +519,10 @@ class VisionSerial:
             mapped_value = speed_value + 100
             
             # 计算校验和
-            checksum = (0x03 + mapped_value) & 0xFF
+            checksum = (self.CMD_ROTATION + mapped_value) & 0xFF
             
-            # 构建命令包: 起始符(AA) + 命令类型(03) + 速度值 + 校验和 + 结束符(BB)
-            command = bytes([0xAA, 0x03, mapped_value, checksum, 0xBB])
+            # 构建命令包: 起始符 + 命令类型 + 速度值 + 校验和 + 结束符
+            command = bytes([self.START_BYTE, self.CMD_ROTATION, mapped_value, checksum, self.END_BYTE])
             self.ser.write(command)
             
             direction = "顺时针" if speed_value > 0 else "逆时针" if speed_value < 0 else "停止"
