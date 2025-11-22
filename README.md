@@ -27,20 +27,20 @@ rescue_vision/
 │   ├── color_detector.py       # 颜色检测模块
 │   ├── ball_tracker.py         # 小球跟踪模块
 │   ├── vision_core.py          # 视觉核心模块
+│   ├── vision_serial.py        # 串口通信模块
 │   ├── main.py                 # 主程序入口
-│   ├── camera_manager.py       # 摄像头管理模块
-│   ├── config_loader.py        # 配置加载器模块
-│   ├── open_camera.py          # 摄像头打开测试工具
-│   └── text_camera_baoguanshu.py  # 摄像头参数调节工具
+│   ├── utils/                  # 工具模块目录
+│   └── logs/                   # 日志目录
 ├── docs/                     # 文档目录
 │   ├── 开发日志.md              # 开发日志
 │   ├── 比赛规则分析.md          # 规则解读
 │   └── 技术方案.md              # 技术设计文档  
 ├── texts/                    # 测试脚本目录
+│   ├── serial_debugger.py         # 串口调试工具
 │   ├── test_color_detector.py     # 颜色检测测试
 │   ├── test_advanced_color_detection.py  # 高级颜色检测测试
 │   ├── test_edge_cases.py         # 边缘情况测试
-│   └── text_yuzhi.py              # 阈值调整工具
+│   └── test_yuzhi.py              # 阈值调整工具
 └── README.md                 # 项目说明文档
 ```
 
@@ -132,9 +132,17 @@ python main.py
 
 视觉核心模块，整合颜色检测和小球跟踪功能，实现目标优先级排序和最佳目标选择。
 
+### vision_serial.py
+
+串口通信模块，负责与电控系统进行数据交互，发送控制命令和接收反馈信息。
+
 ### main.py
 
-主程序入口，负责初始化视觉系统并启动运行。
+主程序入口，负责初始化视觉系统并启动运行，协调各模块工作。
+
+### serial_debugger.py
+
+串口调试工具，用于测试和调试串口通信功能，支持各种命令发送和数据接收测试。
 
 ## 比赛规则支持
 
@@ -157,5 +165,5 @@ python main.py
 1. 首次使用前请确保摄像头已正确连接
 2. 根据实际环境调整HSV颜色阈值以获得最佳检测效果
 3. 比赛前请确认队伍颜色配置正确
-4. 视觉系统运行时，按下'q'键可退出程序# rescue_vision
-智能救援小车的视觉仓库
+4. 视觉系统运行时，按下'q'键可退出程序
+5. 使用串口调试工具前，请确保已安装pyserial库：`pip install pyserial`
