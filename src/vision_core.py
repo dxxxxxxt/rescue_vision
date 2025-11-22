@@ -5,16 +5,20 @@ import numpy as np
 import time
 from color_detector import ColorDetector
 from ball_tracker import BallTracker
+from utils.logger_utils import get_logger
+
+# 获取日志记录器
+logger = get_logger(__name__)
 
 class VisionCore:
-    def __init__(self, hsv_config_path, strategy_config_path):
+    def __init__(self, config_loader):
         """
         视觉核心初始化
-        :param hsv_config_path: HSV阈值配置文件路径
-        :param strategy_config_path: 游戏策略配置文件路径
+        :param config_loader: 配置加载器实例
         """
-        # 加载配置
-        self.strategy_config = self.load_strategy_config(strategy_config_path)
+        # 使用统一的配置加载器
+        self.config_loader = config_loader
+        self.strategy_config = config_loader.strategy_config
         
         # 初始化摄像头
         vision_params = self.strategy_config.get('vision_params', {})
@@ -23,7 +27,8 @@ class VisionCore:
         self.image_height = vision_params.get('image_height', 480)
         
         # 初始化组件
-        self.color_detector = ColorDetector(hsv_config_path)
+        # 使用配置加载器中的HSV配置路径
+        self.color_detector = ColorDetector(config_loader.get_hsv_config_path())
         # 使用配置文件中的小球半径参数
         min_radius = vision_params.get('min_ball_radius', 10)
         max_radius = vision_params.get('max_ball_radius', 100)
@@ -41,17 +46,62 @@ class VisionCore:
         # 新规则：第一个夹取必须是己方球
         self.first_pick = True  # 标记是否为第一次夹取
         
-        # 安全区配置 - 为600*300的长方形
-        self.safety_zone = self.strategy_config.get('safety_zone', {
-            'enabled': True,
-            'type': 'rectangle',
-            'points': [
-                {'x': 0.0, 'y': 0.0},  # 左上角 (相对于图像尺寸的比例)
-                {'x': 600/self.image_width, 'y': 300/self.image_height}  # 右下角 (固定600*300像素)
-            ]
-        })
-        # 转换比例坐标为实际像素坐标
-        self._convert_safety_zone_points()
+        # 优先使用safety_zones数组配置
+        safety_zones = self.strategy_config.get('safety_zones', [])
+        
+        # 初始化安全区
+        self.safety_zones = []
+        self.active_safety_zone = None
+        
+        # 处理safety_zones数组配置
+        if safety_zones and isinstance(safety_zones, list):
+            logger.info(f"找到{safety_zones}个安全区配置")
+            # 将safety_zones转换为程序可用的格式
+            for zone_config in safety_zones:
+                if zone_config.get('enabled', False):
+                    zone = {
+                        'name': zone_config.get('name', 'unnamed_zone'),
+                        'enabled': True,
+                        'type': zone_config.get('type', 'rectangle'),
+                        'pixel_points': []
+                    }
+                    
+                    # 处理position格式的配置
+                    position = zone_config.get('position', {})
+                    if position:
+                        # 计算实际像素坐标
+                        x = position.get('x', 0) * self.image_width
+                        y = position.get('y', 0) * self.image_height
+                        width = position.get('width', 0) * self.image_width
+                        height = position.get('height', 0) * self.image_height
+                        
+                        zone['pixel_points'] = [
+                            (int(x), int(y)),  # 左上角
+                            (int(x + width), int(y + height))  # 右下角
+                        ]
+                        self.safety_zones.append(zone)
+                        logger.info(f"添加安全区: {zone['name']}, 坐标: {zone['pixel_points']}")
+        
+        # 兼容旧的safety_zone配置
+        if not self.safety_zones:
+            logger.warning("未找到有效的safety_zones配置，尝试使用旧的safety_zone配置")
+            self.safety_zone = self.strategy_config.get('safety_zone', {
+                'enabled': True,
+                'type': 'rectangle',
+                'points': [
+                    {'x': 0.0, 'y': 0.0},  # 左上角 (相对于图像尺寸的比例)
+                    {'x': 600/self.image_width, 'y': 300/self.image_height}  # 右下角 (固定600*300像素)
+                ]
+            })
+            # 转换比例坐标为实际像素坐标
+            self._convert_safety_zone_points()
+            if hasattr(self, 'safety_zone') and self.safety_zone.get('enabled', False):
+                self.safety_zones.append({
+                    'name': 'legacy_safety_zone',
+                    'enabled': True,
+                    'type': self.safety_zone.get('type', 'rectangle'),
+                    'pixel_points': self.safety_zone.get('pixel_points', [])
+                })
         
     def load_strategy_config(self, config_path):
         """
@@ -59,24 +109,66 @@ class VisionCore:
         :param config_path: 配置文件路径
         :return: 策略配置字典
         """
-        if not os.path.exists(config_path):
-            raise FileNotFoundError(f"策略配置文件不存在: {config_path}")
+        # 默认配置模板
+        default_config = {
+            "team_color": "red",
+            "ball_priority": ["red", "black", "yellow"],
+            "auto_mode_duration": 300,
+            "yellow_ball_rule": "collect",
+            "ball_counts": {
+                "red": 4,
+                "blue": 4,
+                "yellow": 2,
+                "black": 2
+            },
+            "safety_zones": []
+        }
         
-        with open(config_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        # 检查文件是否存在
+        if not os.path.exists(config_path):
+            logger.error(f"策略配置文件不存在: {config_path}")
+            return default_config
+        
+        try:
+            # 读取配置文件
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+        except json.JSONDecodeError as e:
+            logger.error(f"策略配置文件格式错误 (JSON解析失败): {str(e)}")
+            return default_config
+        except PermissionError as e:
+            logger.error(f"没有权限读取策略配置文件: {str(e)}")
+            return default_config
+        
+        # 验证必要配置项
+        required_fields = ['team_color', 'ball_priority']
+        for field in required_fields:
+            if field not in config:
+                logger.warning(f"策略配置缺少必要字段: {field}，使用默认值")
+                if field == 'team_color':
+                    config[field] = 'red'
+                elif field == 'ball_priority':
+                    config[field] = ['red', 'black', 'yellow']
+        
+        # 验证队伍颜色格式
+        if config['team_color'] not in ['red', 'blue']:
+            logger.warning(f"无效的队伍颜色: {config['team_color']}，使用默认值'red'")
+            config['team_color'] = 'red'
+        
+        logger.info(f"策略配置文件加载成功: {config_path}")
+        return config
     
     def init_camera(self):
         """
         初始化摄像头
         
-        Raises:
-            RuntimeError: 当无法初始化摄像头时抛出异常
-        
         Returns:
-            camera: 初始化好的摄像头对象
+            camera: 初始化好的摄像头对象，失败时返回None
         """
         try:
+            logger.info(f"正在初始化摄像头，ID: {self.camera_id}")
             camera = cv2.VideoCapture(self.camera_id)
+            
             # 设置摄像头参数
             vision_params = self.strategy_config.get('vision_params', {})
             width = vision_params.get('image_width', 640)
@@ -86,29 +178,37 @@ class VisionCore:
             camera.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
             
             if not camera.isOpened():
-                raise RuntimeError(f"无法打开摄像头 {self.camera_id}，请检查设备连接")
+                logger.error(f"无法打开摄像头 {self.camera_id}，请检查设备连接")
+                return None
                 
-            print(f"摄像头已成功初始化，ID: {self.camera_id}")
+            # 尝试捕获一帧，确保摄像头正常工作
+            ret, _ = camera.read()
+            if not ret:
+                camera.release()
+                logger.error(f"摄像头 {self.camera_id} 无法捕获图像")
+                return None
+                
+            logger.info(f"摄像头已成功初始化，ID: {self.camera_id}")
             return camera
             
         except Exception as e:
-            raise RuntimeError(f"初始化摄像头失败: {str(e)}")
+            logger.error(f"初始化摄像头失败: {str(e)}")
+            return None
     
     def get_frame(self):
         """
         获取摄像头当前帧
         
         Returns:
-            frame: 摄像头图像帧
-            
-        Raises:
-            RuntimeError: 当无法获取有效帧时抛出异常
+            frame: 摄像头图像帧，失败时返回None
         """
         
-        if not self.camera.isOpened():
+        if not self.camera or not self.camera.isOpened():
             # 尝试重新打开摄像头
             try:
-                self.camera.release()
+                logger.warning(f"摄像头未打开，尝试重新初始化，ID: {self.camera_id}")
+                if self.camera:
+                    self.camera.release()
                 self.camera = cv2.VideoCapture(self.camera_id)
                 # 设置摄像头参数
                 vision_params = self.strategy_config.get('vision_params', {})
@@ -119,31 +219,78 @@ class VisionCore:
                 time.sleep(0.2)  # 给摄像头一些初始化时间
                 
                 if not self.camera.isOpened():
-                    raise RuntimeError("摄像头无法打开，请检查设备连接")
+                    logger.error("摄像头无法打开，请检查设备连接")
+                    return None
                 
             except Exception as e:
-                raise RuntimeError(f"重新打开摄像头失败: {str(e)}")
+                logger.error(f"重新打开摄像头失败: {str(e)}")
+                return None
         
-        # 获取帧
-        ret, frame = self.camera.read()
-        if not ret or frame is None:
-            raise RuntimeError("无法获取摄像头帧，请检查摄像头")
+        # 设置获取帧的超时
+        timeout = time.time() + 2.0  # 2秒超时
+        retry_count = 0
+        max_retries = 3
         
-        return frame
+        while time.time() < timeout:
+            ret, frame = self.camera.read()
+            if ret and frame is not None and frame.size > 0:
+                return frame
+            
+            retry_count += 1
+            if retry_count > max_retries:
+                break
+                
+            logger.warning("获取帧失败，重试...")
+            time.sleep(0.1)
+        
+        # 尝试重新初始化摄像头
+        if self.camera:
+            self.camera.release()
+            self.camera = self.init_camera()
+            
+        # 重新初始化后再次尝试获取帧
+        if self.camera and self.camera.isOpened():
+            ret, frame = self.camera.read()
+            if ret and frame is not None and frame.size > 0:
+                return frame
+        
+        logger.error("无法获取有效图像帧，请检查摄像头连接")
+        return None
+        
+        logger.error("无法获取摄像头帧，请检查摄像头")
+        return None
     
     def detect_all_balls(self, frame):
         """
         检测所有小球
         :param frame: BGR图像
-        :return: 检测到的小球列表
+        :return: 检测到的小球列表，失败时返回空列表
         """
+        # 验证输入
+        if frame is None or frame.size == 0:
+            logger.error("输入图像为空或无效")
+            return []
+        
         # 检测所有颜色
-        color_masks = self.color_detector.detect_all_colors(frame)
+        try:
+            color_masks = self.color_detector.detect_all_colors(frame)
+            if color_masks is None or not isinstance(color_masks, dict):
+                logger.error("颜色检测器返回的结果类型不正确")
+                return []
+        except Exception as color_err:
+            logger.error(f"颜色检测失败: {str(color_err)}")
+            return []
         
         # 跟踪小球
-        balls = self.ball_tracker.track_balls(color_masks)
-        
-        return balls
+        try:
+            balls = self.ball_tracker.track_balls(color_masks)
+            if balls is None or not isinstance(balls, list):
+                logger.error("小球跟踪器返回的结果类型不正确")
+                return []
+            return balls
+        except Exception as track_err:
+            logger.error(f"小球跟踪失败: {str(track_err)}")
+            return []
     
     def calculate_ball_priority(self, ball):
         """
@@ -201,10 +348,10 @@ class VisionCore:
             if not self.is_ball_in_safety_zone(ball):
                 filtered_balls.append(ball)
             else:
-                print(f"小球 (颜色: {ball['color']}, 坐标: ({ball['x']}, {ball['y']})) 在安全区内，将被过滤掉")
+                logger.debug(f"小球 (颜色: {ball['color']}, 坐标: ({ball['x']}, {ball['y']})) 在安全区内，将被过滤掉")
         
         if not filtered_balls:
-            print("所有检测到的小球都在安全区内")
+            logger.debug("所有检测到的小球都在安全区内")
             return None
         
         prioritized_balls = self.get_prioritized_balls(filtered_balls)
@@ -218,7 +365,7 @@ class VisionCore:
         标记第一次夹取已完成
         """
         self.first_pick = False
-        print("第一次夹取已完成，现在按照正常优先级选择目标")
+        logger.info("第一次夹取已完成，现在按照正常优先级选择目标")
     
     def check_transfer_limit(self, balls, target_ball):
         """
@@ -302,7 +449,7 @@ class VisionCore:
         """
         将安全区的比例坐标转换为实际像素坐标
         """
-        if not self.safety_zone.get('enabled', False):
+        if not hasattr(self, 'safety_zone') or not self.safety_zone.get('enabled', False):
             return
         
         try:
@@ -315,11 +462,11 @@ class VisionCore:
                 pixel_y = int(point['y'] * self.image_height)
                 self.safety_zone['pixel_points'].append((pixel_x, pixel_y))
             
-            print(f"安全区配置: {self.safety_zone['type']}")
-            print(f"安全区像素坐标: {self.safety_zone['pixel_points']}")
+            logger.info(f"安全区配置: {self.safety_zone['type']}")
+            logger.info(f"安全区像素坐标: {self.safety_zone['pixel_points']}")
             
         except Exception as e:
-            print(f"转换安全区坐标失败: {e}")
+            logger.error(f"转换安全区坐标失败: {e}")
             self.safety_zone['enabled'] = False
     
     def is_ball_in_safety_zone(self, ball):
@@ -328,27 +475,54 @@ class VisionCore:
         :param ball: 小球对象，包含x, y坐标
         :return: True表示在安全区内，False表示不在
         """
-        if not self.safety_zone.get('enabled', False):
+        if not self.safety_zones:
+            # 兼容旧的safety_zone配置
+            if hasattr(self, 'safety_zone') and self.safety_zone.get('enabled', False):
+                try:
+                    ball_point = (ball['x'], ball['y'])
+                    points = self.safety_zone['pixel_points']
+                    
+                    # 检查小球是否在长方形安全区内
+                    if self.safety_zone['type'] == 'rectangle' and len(points) >= 2:
+                        # 矩形由左上角和右下角两个点定义
+                        top_left = points[0]
+                        bottom_right = points[1]
+                        
+                        # 检查点是否在矩形范围内
+                        result = (top_left[0] <= ball_point[0] <= bottom_right[0]) and \
+                               (top_left[1] <= ball_point[1] <= bottom_right[1])
+                        if result:
+                            logger.debug(f"小球 (颜色: {ball['color']}, 坐标: ({ball['x']}, {ball['y']})) 在旧格式安全区内")
+                        return result
+                    return False
+                except Exception as e:
+                    logger.error(f"检测旧格式安全区失败: {e}")
             return False
         
+        # 检查所有启用的安全区
         try:
             ball_point = (ball['x'], ball['y'])
-            points = self.safety_zone['pixel_points']
             
-            # 检查小球是否在长方形安全区内
-            if self.safety_zone['type'] == 'rectangle' and len(points) >= 2:
-                # 矩形由左上角和右下角两个点定义
-                top_left = points[0]
-                bottom_right = points[1]
-                
-                # 检查点是否在矩形范围内
-                return (top_left[0] <= ball_point[0] <= bottom_right[0]) and \
-                       (top_left[1] <= ball_point[1] <= bottom_right[1])
+            for zone in self.safety_zones:
+                if zone.get('enabled', False) and zone.get('pixel_points'):
+                    points = zone['pixel_points']
+                    
+                    # 检查小球是否在长方形安全区内
+                    if zone['type'] == 'rectangle' and len(points) >= 2:
+                        # 矩形由左上角和右下角两个点定义
+                        top_left = points[0]
+                        bottom_right = points[1]
+                        
+                        # 检查点是否在矩形范围内
+                        if (top_left[0] <= ball_point[0] <= bottom_right[0]) and \
+                           (top_left[1] <= ball_point[1] <= bottom_right[1]):
+                            logger.debug(f"小球 (颜色: {ball['color']}, 坐标: ({ball['x']}, {ball['y']})) 在安全区 {zone['name']} 内")
+                            return True
             
             return False
             
         except Exception as e:
-            print(f"检测安全区失败: {e}")
+            logger.error(f"检测安全区失败: {e}")
             return False
     
     def draw_safety_zone(self, frame):
@@ -357,32 +531,55 @@ class VisionCore:
         :param frame: 输入图像
         :return: 绘制了安全区的图像
         """
-        if not self.safety_zone.get('enabled', False) or 'pixel_points' not in self.safety_zone:
-            return frame
-        
         try:
-            points = self.safety_zone['pixel_points']
+            # 优先绘制新的safety_zones配置
+            for zone in self.safety_zones:
+                if zone.get('enabled', False) and zone.get('pixel_points'):
+                    points = zone['pixel_points']
+                    
+                    # 绘制长方形安全区
+                    if zone['type'] == 'rectangle' and len(points) >= 2:
+                        # 矩形由左上角和右下角两个点定义
+                        top_left = points[0]
+                        bottom_right = points[1]
+                        
+                        # 绘制半透明矩形
+                        overlay = frame.copy()
+                        cv2.rectangle(overlay, top_left, bottom_right, (0, 0, 255), -1)
+                        frame = cv2.addWeighted(overlay, 0.3, frame, 0.7, 0)
+                        
+                        # 绘制矩形边框
+                        cv2.rectangle(frame, top_left, bottom_right, (0, 0, 255), 2)
+                        
+                        # 添加安全区文字说明
+                        zone_name = zone.get('name', "SAFETY ZONE")
+                        cv2.putText(frame, zone_name, (top_left[0] + 10, top_left[1] - 10),
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
             
-            # 绘制长方形安全区
-            if self.safety_zone['type'] == 'rectangle' and len(points) >= 2:
-                # 矩形由左上角和右下角两个点定义
-                top_left = points[0]
-                bottom_right = points[1]
+            # 兼容旧的safety_zone配置
+            if not self.safety_zones and hasattr(self, 'safety_zone') and self.safety_zone.get('enabled', False) and 'pixel_points' in self.safety_zone:
+                points = self.safety_zone['pixel_points']
                 
-                # 绘制半透明矩形
-                overlay = frame.copy()
-                cv2.rectangle(overlay, top_left, bottom_right, (0, 0, 255), -1)
-                frame = cv2.addWeighted(overlay, 0.3, frame, 0.7, 0)
-                
-                # 绘制矩形边框
-                cv2.rectangle(frame, top_left, bottom_right, (0, 0, 255), 2)
-                
-                # 添加安全区文字说明
-                cv2.putText(frame, "SAFETY ZONE", (top_left[0] + 10, top_left[1] - 10),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                # 绘制长方形安全区
+                if self.safety_zone['type'] == 'rectangle' and len(points) >= 2:
+                    # 矩形由左上角和右下角两个点定义
+                    top_left = points[0]
+                    bottom_right = points[1]
+                    
+                    # 绘制半透明矩形
+                    overlay = frame.copy()
+                    cv2.rectangle(overlay, top_left, bottom_right, (0, 0, 255), -1)
+                    frame = cv2.addWeighted(overlay, 0.3, frame, 0.7, 0)
+                    
+                    # 绘制矩形边框
+                    cv2.rectangle(frame, top_left, bottom_right, (0, 0, 255), 2)
+                    
+                    # 添加安全区文字说明
+                    cv2.putText(frame, "SAFETY ZONE", (top_left[0] + 10, top_left[1] - 10),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
         
         except Exception as e:
-            print(f"绘制安全区失败: {e}")
+            logger.error(f"绘制安全区失败: {e}")
         
         return frame
     
@@ -390,28 +587,79 @@ class VisionCore:
         """
         处理单帧图像
         :param frame: BGR图像
-        :return: 处理结果（带标注的图像、检测到的小球、最佳目标）
+        :return: 处理结果（带标注的图像、检测到的小球、最佳目标），如果输入无效返回None, [], None
         """
+        # 验证输入
+        if frame is None or frame.size == 0:
+            logger.error("输入图像为空或无效")
+            return None, [], None
+        
+        # 确保图像可修改
+        try:
+            if frame.flags.writeable:
+                annotated_frame = frame.copy()
+            else:
+                logger.warning("输入图像不可写，创建可写副本")
+                annotated_frame = frame.copy()
+        except Exception as e:
+            logger.error(f"创建图像副本失败: {str(e)}")
+            return None, [], None
+        
         # 检测小球
-        balls = self.detect_all_balls(frame)
+        balls = []
+        try:
+            balls = self.detect_all_balls(frame)
+            if not isinstance(balls, list):
+                logger.error("detect_all_balls返回的结果类型不正确")
+                balls = []
+        except Exception as detect_err:
+            # 记录错误但继续执行，不中断处理流程
+            logger.error(f"小球检测失败: {detect_err}")
+            balls = []
         
         # 获取最佳目标
-        best_target = self.get_best_target(balls)
+        best_target = None
+        try:
+            best_target = self.get_best_target(balls)
+        except Exception as target_err:
+            # 记录错误但继续执行
+            logger.error(f"获取最佳目标失败: {target_err}")
         
         # 绘制结果
-        annotated_frame = self.ball_tracker.draw_balls(frame, balls)
+        try:
+            if hasattr(self, 'ball_tracker'):
+                annotated_frame = self.ball_tracker.draw_balls(annotated_frame, balls)
+            else:
+                logger.warning("ball_tracker未初始化，跳过绘制")
+        except Exception as draw_err:
+            logger.error(f"绘制小球失败: {draw_err}")
         
         # 绘制安全区
-        annotated_frame = self.draw_safety_zone(annotated_frame)
+        try:
+            annotated_frame = self.draw_safety_zone(annotated_frame)
+        except Exception as safety_err:
+            logger.error(f"绘制安全区失败: {safety_err}")
         
         # 标记最佳目标
         if best_target:
-            center = (best_target['x'], best_target['y'])
-            radius = best_target['radius']
-            # 绘制红色边框表示最佳目标
-            cv2.circle(annotated_frame, center, radius + 5, (0, 0, 255), 3)
-            cv2.putText(annotated_frame, "TARGET", (center[0] - 30, center[1] + radius + 20),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+            try:
+                # 验证最佳目标数据
+                if all(k in best_target for k in ['x', 'y', 'radius']):
+                    center = (best_target['x'], best_target['y'])
+                    radius = best_target['radius']
+                    # 确保坐标有效
+                    h, w = annotated_frame.shape[:2]
+                    if 0 <= center[0] < w and 0 <= center[1] < h:
+                        # 绘制红色边框表示最佳目标
+                        cv2.circle(annotated_frame, center, radius + 5, (0, 0, 255), 3)
+                        cv2.putText(annotated_frame, "TARGET", (center[0] - 30, center[1] + radius + 20),
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                    else:
+                        logger.warning(f"最佳目标坐标超出图像范围: {center}")
+                else:
+                    logger.warning("最佳目标数据不完整")
+            except Exception as mark_err:
+                logger.error(f"标记最佳目标失败: {mark_err}")
         
         return {
             'frame': annotated_frame,
@@ -427,48 +675,82 @@ class VisionCore:
         :param output_path: 视频保存路径
         """
         self.video_writer = None
+        restart_count = 0
+        max_restarts = 5
         
         try:
             while True:
-                # 获取帧
-                frame = self.get_frame()
-                
-                # 处理帧
-                result = self.process_frame(frame)
-                
-                # 保存视频
-                if save_video:
-                    if self.video_writer is None:
-                        # 创建视频写入器
-                        fourcc = cv2.VideoWriter_fourcc(*'XVID')
-                        fps = self.camera.get(cv2.CAP_PROP_FPS)
-                        size = (result['frame'].shape[1], result['frame'].shape[0])
-                        self.video_writer = cv2.VideoWriter(output_path, fourcc, fps, size)
-                    self.video_writer.write(result['frame'])
-                
-                # 显示图像
-                if display:
-                    cv2.imshow('Rescue Vision', result['frame'])
+                try:
+                    # 获取帧
+                    frame = self.get_frame()
                     
-                    # 按下'q'键退出
-                    if cv2.waitKey(1) & 0xFF == ord('q'):
-                        break
+                    # 处理帧
+                    result = self.process_frame(frame)
+                    
+                    # 保存视频
+                    if save_video and result['frame'] is not None:
+                        try:
+                            if self.video_writer is None:
+                                # 创建视频写入器
+                                fourcc = cv2.VideoWriter_fourcc(*'XVID')
+                                fps = self.camera.get(cv2.CAP_PROP_FPS)
+                                size = (result['frame'].shape[1], result['frame'].shape[0])
+                                self.video_writer = cv2.VideoWriter(output_path, fourcc, fps, size)
+                                logger.info(f"视频写入器已初始化，保存路径: {output_path}")
+                            self.video_writer.write(result['frame'])
+                        except Exception as e:
+                            logger.error(f"保存视频帧失败: {e}")
+                            # 尝试重新初始化视频写入器
+                            if self.video_writer:
+                                self.video_writer.release()
+                                self.video_writer = None
+                    
+                    # 显示图像
+                    if display and result['frame'] is not None:
+                        cv2.imshow('Rescue Vision', result['frame'])
+                        
+                        # 按下'q'键退出
+                        if cv2.waitKey(1) & 0xFF == ord('q'):
+                            logger.info("用户按q键退出")
+                            break
+                    
+                    # 输出检测结果
+                    logger.debug(f"检测到 {len(result['balls'])} 个小球")
+                    if result['best_target']:
+                        logger.info(f"最佳目标: {result['best_target']['color']} 球 - 位置 ({result['best_target']['x']}, {result['best_target']['y']})")
                 
-                # 输出检测结果
-                print(f"检测到 {len(result['balls'])} 个小球")
-                if result['best_target']:
-                    print(f"最佳目标: {result['best_target']['color']} 球 - 位置 ({result['best_target']['x']}, {result['best_target']['y']})")
+                except Exception as e:
+                    # 处理摄像头错误，尝试重新初始化
+                    logger.error(f"摄像头错误: {e}")
+                    restart_count += 1
+                    
+                    if restart_count < max_restarts:
+                        logger.info(f"尝试重新初始化摄像头，重启计数: {restart_count}/{max_restarts}")
+                        # 释放旧的摄像头资源
+                        if hasattr(self, 'camera') and self.camera:
+                            self.camera.release()
+                            self.camera = None
+                        
+                        # 等待一段时间后重试
+                        time.sleep(1)
+                        try:
+                            self.camera = self.init_camera()
+                        except Exception as init_error:
+                            logger.error(f"重新初始化摄像头失败: {init_error}")
+                    else:
+                        logger.error(f"达到最大重启次数，程序退出")
+                        break
+                    
+                    # 短暂暂停避免CPU占用过高
+                    time.sleep(0.01)
         
         except KeyboardInterrupt:
-            print("视觉系统已停止")
-        
+            logger.info("视觉系统已停止")
+        except Exception as e:
+            logger.error(f"运行时发生严重错误: {e}")
         finally:
             # 释放资源
-            self.camera.release()
-            if self.video_writer:
-                self.video_writer.release()
-            if display:
-                cv2.destroyAllWindows()
+            self.release()
     
     def release(self):
         """
@@ -477,16 +759,16 @@ class VisionCore:
         try:
             if hasattr(self, 'camera') and self.camera is not None:
                 self.camera.release()
-                print("摄像头资源已释放")
+                logger.info("摄像头资源已释放")
             
             if hasattr(self, 'video_writer') and self.video_writer is not None:
                 self.video_writer.release()
                 self.video_writer = None
-                print("视频保存完成")
+                logger.info("视频保存完成")
             
             cv2.destroyAllWindows()
         except Exception as e:
-            print(f"释放资源时发生错误: {str(e)}")
+            logger.error(f"释放资源时发生错误: {str(e)}")
     
     def __del__(self):
         """

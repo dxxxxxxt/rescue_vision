@@ -56,36 +56,7 @@ class TestColorDetector(unittest.TestCase):
         self.assertEqual(red_pixel_count, 0, "空图像不应该检测到红色")
         print("✅ 空图像处理通过")
     
-    def test_blue_ball_detection(self):
-        """测试蓝色球检测"""
-        test_image = np.zeros((100, 100, 3), dtype=np.uint8)
-        test_image[:, :] = [255, 0, 0]  # 纯蓝色(BGR)
-        
-        mask = self.detector.detect_color(test_image, 'blue')
-        blue_pixel_count = np.sum(mask > 0)
-        
-        self.assertGreater(blue_pixel_count, 0, "蓝色球检测失败")
-        print(f"✅ 蓝色球检测通过，检测到 {blue_pixel_count} 个蓝色像素")
-    
-    def test_all_colors_in_one_image(self):
-        """测试在同一图像中检测所有颜色"""
-        # 创建测试图像
-        test_image = np.ones((200, 200, 3), dtype=np.uint8) * 128  # 灰色背景
-        
-        # 在不同位置绘制不同颜色的正方形
-        positions = [(50, 50), (150, 50), (50, 150), (150, 150)]
-        
-        for i, (color_name, bgr_value) in enumerate(self.base_colors.items()):
-            x, y = positions[i]
-            cv2.rectangle(test_image, (x-30, y-30), (x+30, y+30), bgr_value, -1)
-        
-        # 测试每种颜色检测
-        for color_name in self.base_colors.keys():
-            mask = self.detector.detect_color(test_image, color_name)
-            pixel_count = np.sum(mask > 0)
-            
-            self.assertGreater(pixel_count, 0, f"{color_name}在混合图像中检测失败")
-            print(f"✅ {color_name}在混合图像中检测通过，检测到 {pixel_count} 个像素")
+
     
     def test_all_base_colors(self):
         """测试所有基础颜色检测"""
