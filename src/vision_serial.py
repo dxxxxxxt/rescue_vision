@@ -25,9 +25,6 @@ class VisionSerial:
         # 通信协议常量
         self.START_BYTE = 0xAA
         self.END_BYTE = 0xBB
-        self.CMD_GRAB = 0x01
-        self.CMD_PLACE = 0x02
-        self.CMD_ROTATION = 0x03
         
         # 小球颜色映射
         self.color_to_id = {
@@ -175,6 +172,78 @@ class VisionSerial:
         if not self.is_connected or not self.ser or not self.ser.is_open:
             return self.connect()
         return True
+        
+    def receive_feedback(self):
+        """
+        接收电控系统的反馈数据
+        
+        返回格式:
+        {"type": 反馈类型代码,
+         "state": 状态数据,
+         "raw_data": 原始字节数据}
+         
+        如果未接收到有效数据或发生错误，返回None
+        """
+        if not self.ensure_connected():
+            self.logger.error("未连接到串口，无法接收反馈")
+            return None
+            
+        try:
+            # 等待接收数据
+            if self.ser.in_waiting > 0:
+                # 读取至少6字节（最小数据包大小）
+                available_bytes = self.ser.in_waiting
+                data = self.ser.read(min(available_bytes, 128))  # 限制最大读取量
+                
+                # 寻找起始字节
+                start_index = -1
+                for i in range(len(data)):
+                    if data[i] == self.START_BYTE:
+                        start_index = i
+                        break
+                
+                if start_index == -1:
+                    self.logger.debug("未找到起始字节")
+                    return None
+                
+                # 检查剩余数据是否足够
+                remaining_data = data[start_index:]
+                if len(remaining_data) < 6:  # 最小数据包大小: 起始字节 + 反馈类型 + 状态数据(2字节) + 校验和 + 结束字节
+                    self.logger.debug("数据不完整，等待更多数据")
+                    return None
+                
+                # 提取数据包
+                packet = remaining_data[:6]  # 提取最小数据包
+                
+                # 验证结束字节
+                if packet[5] != self.END_BYTE:
+                    self.logger.debug("结束字节验证失败")
+                    return None
+                
+                # 验证校验和
+                checksum = sum(packet[1:4]) & 0xFF  # 反馈类型 + 状态数据(2字节)
+                if checksum != packet[4]:
+                    self.logger.debug(f"校验和验证失败: 计算={checksum:02X}, 接收={packet[4]:02X}")
+                    return None
+                
+                # 解析数据
+                feedback_type = packet[1]
+                state_data = int.from_bytes(packet[2:4], byteorder='little', signed=True)
+                
+                self.logger.info(f"收到电控反馈: 类型={feedback_type}, 状态={state_data}")
+                
+                return {
+                    "type": feedback_type,
+                    "state": state_data,
+                    "raw_data": packet
+                }
+            
+        except Exception as e:
+            self.logger.error(f"接收电控反馈时发生错误: {e}")
+            # 断开连接，下次发送时会自动重连
+            self.disconnect()
+        
+        return None
 
     def send_ball_data(self, dx, dy, ball_color, distance):
         """
@@ -341,10 +410,7 @@ class VisionSerial:
             self.logger.error(f"处理多球数据失败: {e}")
             return False
 
-    def send_stop(self):
-        """发送停止指令"""
-        self.logger.info("发送停止指令")
-        return self.send_ball_data(0, 0, 'red', 1000)
+    # 停止功能已移除，电控系统不再需要命令数据
 
     def test_communication(self):
         """测试通信"""
@@ -371,166 +437,13 @@ class VisionSerial:
         self.logger.info(f"测试完成: {success_count}/{len(test_balls)} 通过")
         return success_count > 0
 
-    def receive_data(self, timeout=0.1):
-        """从串口接收数据
+    def report_failure(self, message):
+        """报告失败信息
         
         Args:
-            timeout: 接收超时时间，单位秒
-            
-        Returns:
-            接收到的数据字典，包含命令类型和参数，或None表示未接收到有效数据
+            message: 失败信息描述
         """
-        if not self.ser or not self.ser.is_open:
-            self.logger.error("串口未打开，无法接收数据")
-            return None
-            
-        try:
-            # 设置超时
-            self.ser.timeout = timeout
-            
-            # 检查是否有数据可读
-            if self.ser.in_waiting > 0:
-                # 读取所有可用数据
-                data = self.ser.read_all()
-                self.logger.debug(f"接收到原始数据: {data.hex()}")
-                
-                # 简单的数据解析逻辑
-                # 数据格式: [0xAA, 命令类型, 参数, 校验和, 0xBB]
-                if len(data) >= 5 and data[0] == self.START_BYTE and data[-1] == self.END_BYTE:
-                    cmd_type = data[1]
-                    checksum = data[-2]
-                    params = data[2:-2]  # 排除起始、命令类型、校验和和结束字节
-                    
-                    # 计算校验和
-                    calculated_checksum = sum(data[1:-2]) & 0xFF
-                    
-                    # 校验和验证
-                    if calculated_checksum == checksum:
-                        # 解析命令类型
-                        if cmd_type == self.CMD_GRAB and len(params) == 1:
-                            # 抓取命令反馈
-                            status = params[0]
-                            return {
-                                'type': 'grab',
-                                'status': 'success' if status == 1 else 'failed'
-                            }
-                        elif cmd_type == self.CMD_PLACE and len(params) == 1:
-                            # 放置命令反馈
-                            status = params[0]
-                            return {
-                                'type': 'place',
-                                'status': 'success' if status == 1 else 'failed',
-                                'position': status
-                            }
-                        elif cmd_type == self.CMD_ROTATION and len(params) == 1:
-                            # 旋转命令反馈
-                            status = params[0]
-                            return {
-                                'type': 'rotation',
-                                'status': 'success' if status == 1 else 'failed',
-                                'speed': status - 100  # 从映射值转换回速度百分比
-                            }
-                        else:
-                            # 返回通用格式
-                            return {
-                                "cmd_type": cmd_type,
-                                "params": params
-                            }
-                    else:
-                        self.logger.warning(f"校验和错误，接收到: {checksum}, 计算: {calculated_checksum}")
-                else:
-                    self.logger.warning("接收到非标准格式数据")
-                    
-            return None
-        except Exception as e:
-            self.logger.error(f"接收数据异常: {e}")
-            return None
-    
-    def send_grab_command(self, grab=True):
-        """发送抓取命令给电控系统
-        
-        Args:
-            grab: True表示抓取，False表示释放
-        """
-        if not self.ensure_connected():
-            self.logger.error("未连接到串口")
-            return False
-            
-        try:
-            # 构建抓取命令数据包 [START_BYTE, CMD_GRAB, 抓取标志, 校验和, END_BYTE]
-            flag = 1 if grab else 0
-            checksum = (self.CMD_GRAB + flag) & 0xFF
-            
-            command = bytes([self.START_BYTE, self.CMD_GRAB, flag, checksum, self.END_BYTE])
-            self.ser.write(command)
-            self.logger.info(f"发送抓取命令: {'抓取' if grab else '释放'}")
-            return True
-        except Exception as e:
-            self.logger.error(f"发送抓取命令异常: {e}")
-            return False
-    
-    def send_place_command(self, position=None):
-        """发送放置命令给电控系统
-        
-        Args:
-            position: 放置位置信息，可为None表示使用默认位置
-        """
-        if not self.ensure_connected():
-            self.report_failure("未连接到串口")
-            return False
-            
-        try:
-            # 构建放置命令数据包 [START_BYTE, CMD_PLACE, 位置信息, 校验和, END_BYTE]
-            pos_value = 0 if position is None else position
-            checksum = (self.CMD_PLACE + pos_value) & 0xFF
-            
-            command = bytes([self.START_BYTE, self.CMD_PLACE, pos_value, checksum, self.END_BYTE])
-            self.ser.write(command)
-            self.logger.info(f"发送放置命令，位置: {pos_value}")
-            return True
-        except Exception as e:
-            self.logger.error(f"发送放置命令异常: {e}")
-            return False
-            
-    def send_rotation(self, rotation_speed):
-        """
-        发送旋转指令给电控系统
-        
-        Args:
-            rotation_speed: 旋转速度百分比值，范围为-100到100
-                           正数表示顺时针旋转，负数表示逆时针旋转
-                           绝对值表示旋转速度的百分比
-            
-        Returns:
-            bool: 命令发送成功返回True，否则返回False
-        """
-        if not self.ensure_connected():
-            self.report_failure("未连接到串口")
-            return False
-            
-        try:
-            # 验证并处理旋转速度值
-            speed_value = int(rotation_speed)
-            # 确保速度值在有效范围内
-            speed_value = max(-100, min(100, speed_value))
-            
-            # 将-100到100的范围映射到0-200
-            # 0表示-100(逆时针最大速度)，100表示停止，200表示100(顺时针最大速度)
-            mapped_value = speed_value + 100
-            
-            # 计算校验和
-            checksum = (self.CMD_ROTATION + mapped_value) & 0xFF
-            
-            # 构建命令包: 起始符 + 命令类型 + 速度值 + 校验和 + 结束符
-            command = bytes([self.START_BYTE, self.CMD_ROTATION, mapped_value, checksum, self.END_BYTE])
-            self.ser.write(command)
-            
-            direction = "顺时针" if speed_value > 0 else "逆时针" if speed_value < 0 else "停止"
-            self.logger.info(f"发送旋转命令: {direction}，速度: {abs(speed_value)}%")
-            return True
-        except Exception as e:
-            self.logger.error(f"发送旋转命令时出错: {e}")
-            return False
+        self.logger.error(message)
             
     def close(self):
         """关闭串口"""

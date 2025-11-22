@@ -42,20 +42,34 @@ def main():
             logger.info("将在模拟模式下运行，不发送实际命令")
             # 创建一个模拟的串口对象
             class MockSerial:
+                """模拟串口类，用于测试"""
+                def __init__(self, *args, **kwargs):
+                    logger.debug("使用模拟串口类初始化")
+                    self.is_connected = True
+                    self.feedback_count = 0
+                
                 def send_ball_detection(self, data):
                     logger.debug(f"[模拟发送] 球检测数据: {data}")
-                def send_stop_command(self):
-                    logger.debug("[模拟发送] 停止命令")
-                def send_grab_command(self):
-                    logger.debug("[模拟发送] 抓取命令")
-                def send_place_command(self):
-                    logger.debug("[模拟发送] 放置命令")
-                def send_rotation(self, angle):
-                    logger.debug(f"[模拟发送] 旋转命令: {angle}度")
-                def receive_data(self):
+                    return True
+                
+                def receive_feedback(self):
+                    """模拟接收电控反馈"""
+                    self.feedback_count += 1
+                    # 每3次调用返回一次模拟反馈
+                    if self.feedback_count % 3 == 0:
+                        feedback_type = 1  # 模拟常规状态反馈
+                        state_data = 100 + (self.feedback_count // 3)  # 递增的状态数据
+                        logger.debug(f"[模拟接收] 电控反馈 - 类型: {feedback_type}, 状态: {state_data}")
+                        return {
+                            "type": feedback_type,
+                            "state": state_data,
+                            "raw_data": None
+                        }
                     return None
+                
                 def close(self):
                     logger.debug("[模拟] 关闭串口")
+                    self.is_connected = False
             serial = MockSerial()
         
         # 定义状态常量（使用字符串常量提高可读性）
@@ -130,13 +144,9 @@ def main():
                     logger.info("[寻找球] 未发现目标，继续搜索...")
                     no_ball_count += 1
                     
-                    # 如果连续10帧都没有检测到球，向电控发送停止指令
+                    # 电控系统不再需要命令数据，仅记录状态
                     if no_ball_count >= 10:
-                        try:
-                            # 发送停止命令
-                            serial.send_stop()
-                        except Exception as e:
-                            logger.error(f"发送停止命令失败: {e}")
+                        logger.info("连续未检测到球，保持当前状态")
 
             elif state == APPROACH_BALL:  # 接近球状态
                 if best_target and best_target['color'] in [vision_core.team_color, 'black', 'yellow']:
@@ -188,21 +198,14 @@ def main():
                     # 如果连续3帧都没有检测到球，返回搜索状态
                     if no_ball_count >= 3:
                         state = SEARCH_BALL
-                        try:
-                            serial.send_stop_command()
-                        except Exception as e:
-                            logger.error(f"发送停止命令失败: {e}")
+                        logger.info("连续未检测到球，返回搜索状态")
 
             elif state == GRAB_BALL:  # 抓取状态
                 logger.info("[抓取] 执行抓取动作...")
                 
-                try:
-                    # 发送抓取命令
-                    serial.send_grab_command()
-                    claw_state = "closed"
-                    logger.info("抓取命令发送成功")
-                except Exception as e:
-                    logger.error(f"发送抓取命令失败: {e}")
+                # 电控系统不再需要命令数据，仅记录状态
+                claw_state = "closed"
+                logger.info("记录抓取状态，但不再发送命令")
                 
                 # 抓取后转换到寻找区域状态
                 if time.time() - state_timer > 2:  # 等待2秒完成抓取动作
@@ -218,40 +221,35 @@ def main():
                     state = PLACE_BALL  # 转换到放置状态
                     state_timer = time.time()
                 else:
-                    try:
-                        # 发送旋转指令搜索区域
-                        serial.send_rotation(30)
-                    except Exception as e:
-                        logger.error(f"发送旋转命令失败: {e}")
+                    # 电控系统不再需要命令数据，仅记录状态
+                    logger.info("记录旋转搜索状态，但不再发送命令")
 
             elif state == PLACE_BALL:  # 放置状态
                 logger.info("[放置] 执行放置动作...")
                 
-                try:
-                    # 发送放置命令
-                    serial.send_place_command()
-                    claw_state = "open"
-                    logger.info("放置命令发送成功")
-                except Exception as e:
-                    logger.error(f"发送放置命令失败: {e}")
+                # 电控系统不再需要命令数据，仅记录状态
+                claw_state = "open"
+                logger.info("记录放置状态，但不再发送命令")
                 
                 # 放置后转换回搜索状态
                 if time.time() - state_timer > 2:  # 等待2秒完成放置动作
                     state = SEARCH_BALL
                     state_timer = time.time()
 
-            # 从电控接收状态信息
+            # 从电控接收状态反馈
             try:
-                received_data = serial.receive_data()
-                if received_data:
-                    # 验证数据类型
-                    if hasattr(received_data, 'hex'):
-                        logger.debug(f"收到电控数据: {received_data.hex()}")
-                    else:
-                        logger.debug(f"收到电控数据: {received_data}")
-                    # 可以根据收到的数据调整状态机
+                feedback = serial.receive_feedback()
+                if feedback:
+                    feedback_type = feedback.get("type")
+                    state_data = feedback.get("state")
+                    logger.debug(f"成功接收电控反馈 - 类型: {feedback_type}, 状态: {state_data}")
+                    
+                    # 可以根据反馈类型和状态数据调整状态机
+                    # 例如：如果接收到特定状态，可以切换到相应的处理状态
+                    # if feedback_type == 1 and state_data == 200:
+                    #     state = NEXT_STATE
             except Exception as e:
-                logger.error(f"接收数据失败: {e}")
+                logger.error(f"接收电控反馈失败: {e}")
 
             # 统一延时，避免占用过多CPU
             time.sleep(0.05)
