@@ -279,6 +279,104 @@ class VisionSerial:
         print(f"📊 测试完成: {success_count}/{len(test_balls)} 通过")
         return success_count > 0
 
+    def receive_data(self, timeout=0.1):
+        """从串口接收数据
+        
+        Args:
+            timeout: 接收超时时间，单位秒
+            
+        Returns:
+            接收到的数据字典，包含命令类型和参数，或None表示未接收到有效数据
+        """
+        if not self.serial or not self.serial.is_open:
+            self.logger.error("串口未打开，无法接收数据")
+            return None
+            
+        try:
+            # 设置超时
+            self.serial.timeout = timeout
+            
+            # 检查是否有数据可读
+            if self.serial.in_waiting > 0:
+                # 读取所有可用数据
+                data = self.serial.read_all()
+                self.logger.debug(f"接收到原始数据: {data.hex()}")
+                
+                # 简单的数据解析逻辑
+                # 假设数据格式: [0xAA, 命令类型, 参数1, 参数2, 校验和, 0xBB]
+                if len(data) >= 6 and data[0] == 0xAA and data[-1] == 0xBB:
+                    cmd_type = data[1]
+                    params = data[2:-2]  # 排除起始、命令类型、校验和和结束字节
+                    checksum = data[-2]
+                    
+                    # 简单校验
+                    calculated_checksum = sum(data[1:-2]) & 0xFF
+                    if calculated_checksum == checksum:
+                        # 返回解析后的数据
+                        return {
+                            "cmd_type": cmd_type,
+                            "params": params
+                        }
+                    else:
+                        self.logger.warning(f"校验和错误，接收到: {checksum}, 计算: {calculated_checksum}")
+                else:
+                    self.logger.warning("接收到非标准格式数据")
+                    
+            return None
+        except Exception as e:
+            self.logger.error(f"接收数据异常: {e}")
+            return None
+    
+    def send_grab_command(self, grab=True):
+        """发送抓取命令给电控系统
+        
+        Args:
+            grab: True表示抓取，False表示释放
+        """
+        if not self.serial or not self.serial.is_open:
+            self.logger.error("串口未打开，无法发送抓取命令")
+            return False
+            
+        try:
+            # 构建抓取命令数据包 [0xAA, 0x01, 抓取标志, 校验和, 0xBB]
+            # 0x01: 抓取命令类型
+            # 抓取标志: 1=抓取, 0=释放
+            flag = 1 if grab else 0
+            checksum = (0x01 + flag) & 0xFF
+            
+            command = bytes([0xAA, 0x01, flag, checksum, 0xBB])
+            self.serial.write(command)
+            self.logger.info(f"发送抓取命令: {'抓取' if grab else '释放'}")
+            return True
+        except Exception as e:
+            self.logger.error(f"发送抓取命令异常: {e}")
+            return False
+    
+    def send_place_command(self, position=None):
+        """发送放置命令给电控系统
+        
+        Args:
+            position: 放置位置信息，可为None表示使用默认位置
+        """
+        if not self.serial or not self.serial.is_open:
+            self.logger.error("串口未打开，无法发送放置命令")
+            return False
+            
+        try:
+            # 构建放置命令数据包 [0xAA, 0x02, 位置信息, 校验和, 0xBB]
+            # 0x02: 放置命令类型
+            # 位置信息: 0=默认位置, 1-4=特定区域位置
+            pos_value = 0 if position is None else position
+            checksum = (0x02 + pos_value) & 0xFF
+            
+            command = bytes([0xAA, 0x02, pos_value, checksum, 0xBB])
+            self.serial.write(command)
+            self.logger.info(f"发送放置命令，位置: {pos_value}")
+            return True
+        except Exception as e:
+            self.logger.error(f"发送放置命令异常: {e}")
+            return False
+            
     def close(self):
         """关闭串口"""
         if self.ser and self.ser.is_open:
