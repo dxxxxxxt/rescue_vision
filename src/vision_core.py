@@ -2,6 +2,7 @@ import cv2
 import json
 import os
 import numpy as np
+import time
 from color_detector import ColorDetector
 from ball_tracker import BallTracker
 
@@ -103,7 +104,6 @@ class VisionCore:
         Raises:
             RuntimeError: 当无法获取有效帧时抛出异常
         """
-        import time
         
         if not self.camera.isOpened():
             # 尝试重新打开摄像头
@@ -465,8 +465,8 @@ class VisionCore:
         finally:
             # 释放资源
             self.camera.release()
-            if video_writer:
-                video_writer.release()
+            if self.video_writer:
+                self.video_writer.release()
             if display:
                 cv2.destroyAllWindows()
     
@@ -492,5 +492,9 @@ class VisionCore:
         """
         析构函数，释放摄像头资源
         """
-        if hasattr(self, 'camera'):
-            self.camera.release()
+        try:
+            if hasattr(self, 'camera') and self.camera is not None:
+                self.camera.release()
+        except Exception as e:
+            # 析构函数中不应抛出异常
+            pass
