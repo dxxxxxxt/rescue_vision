@@ -1,6 +1,7 @@
 import serial
 import time
 import struct
+from serial import TimeoutException
 from utils.logger_utils import get_logger
 
 class VisionSerial:
@@ -74,17 +75,17 @@ class VisionSerial:
         if self.team_color == 'red':
             # 己方红色队：收集红、黄、黑；忽略蓝
             self.priorities = {
-                'yellow': 30,  # 危险目标 - 最高优先级 (15分)
-                'black': 20,   # 核心目标 (10分)
-                'red': 10,     # 己方普通目标 (5分)
+                'black': 30,   # 核心目标 - 最高优先级
+                'yellow': 20,  # 危险目标
+                'red': 10,     # 己方普通目标
                 'blue': 0,     # 敌方目标 - 不收集
             }
         else:
             # 己方蓝色队：收集蓝、黄、黑；忽略红
             self.priorities = {
-                'yellow': 30,  # 危险目标 - 最高优先级 (15分)
-                'black': 20,   # 核心目标 (10分)
-                'blue': 10,    # 己方普通目标 (5分)
+                'black': 30,   # 核心目标 - 最高优先级
+                'yellow': 20,  # 危险目标
+                'blue': 10,    # 己方普通目标
                 'red': 0,      # 敌方目标 - 不收集
             }
         
@@ -92,7 +93,7 @@ class VisionSerial:
         self.logger.info("当前优先级设置:")
         for color, priority in sorted(self.priorities.items(), key=lambda x: x[1], reverse=True):
             action = "收集" if priority > 0 else "忽略"
-            score = {30: "15分", 20: "10分", 10: "5分", 0: "0分"}[priority]
+            score = {30: "核心球", 20: "危险球", 10: "普通球", 0: "0分"}[priority]
             self.logger.info(f"   {color.upper()}球: 优先级{priority} ({action}) - {score}")
         
         return True
@@ -123,7 +124,8 @@ class VisionSerial:
                 bytesize=serial.EIGHTBITS,
                 parity=serial.PARITY_NONE,
                 stopbits=serial.STOPBITS_ONE,
-                timeout=0.1
+                timeout=0.1,
+                write_timeout=0.5  # 添加写入超时
             )
             
             if self.ser.is_open:
@@ -293,6 +295,11 @@ class VisionSerial:
             self.logger.info(f"发送: {ball_color}球, 偏移({dx},{dy}), 距离{distance}mm")
             return True
             
+        except TimeoutException:
+            self.logger.error("串口发送超时")
+            # 断开连接，下次发送时会自动重连
+            self.disconnect()
+            return False
         except Exception as e:
             self.logger.error(f"发送小球数据失败: {e}")
             # 断开连接，下次发送时会自动重连

@@ -1,6 +1,6 @@
 import cv2
 import numpy as np
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, Union
 from utils.logger_utils import get_logger
 
 # 获取日志记录器

@@ -3,7 +3,7 @@
   "ball_priorities": {
     "black": 200,  
     "yellow": 150, 
-    "team": 100,   
+    "team": 50,    
     "enemy": 0     
   },
   "movement_strategy": "avoid_collision",

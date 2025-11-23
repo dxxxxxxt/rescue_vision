@@ -55,7 +55,7 @@ class VisionCore:
         
         # 处理safety_zones数组配置
         if safety_zones and isinstance(safety_zones, list):
-            logger.info(f"找到{safety_zones}个安全区配置")
+            logger.info(f"找到{len(safety_zones)}个安全区配置")
             # 将safety_zones转换为程序可用的格式
             for zone_config in safety_zones:
                 if zone_config.get('enabled', False):
@@ -63,6 +63,7 @@ class VisionCore:
                         'name': zone_config.get('name', 'unnamed_zone'),
                         'enabled': True,
                         'type': zone_config.get('type', 'rectangle'),
+                        'priority': zone_config.get('priority', 0),
                         'pixel_points': []
                     }
                     
@@ -80,7 +81,12 @@ class VisionCore:
                             (int(x + width), int(y + height))  # 右下角
                         ]
                         self.safety_zones.append(zone)
-                        logger.info(f"添加安全区: {zone['name']}, 坐标: {zone['pixel_points']}")
+                        logger.info(f"添加安全区: {zone['name']}, 类型: {zone['type']}, 优先级: {zone['priority']}, 坐标: {zone['pixel_points']}")
+        
+        # 设置默认活动安全区
+        if self.safety_zones:
+            self.active_safety_zone = self.safety_zones[0]
+            logger.info(f"默认活动安全区设置为: {self.active_safety_zone['name']}")
         
         # 兼容旧的safety_zone配置
         if not self.safety_zones:
@@ -356,9 +362,35 @@ class VisionCore:
         
         prioritized_balls = self.get_prioritized_balls(filtered_balls)
         
-        # 由于每次只夹取一个小球，且已排除对方球，直接返回最高优先级的球
-        # 黄色球单独转运规则在每次只夹一个的情况下自动满足
-        return prioritized_balls[0] if prioritized_balls[0]['priority'] > 0 else None
+        # 检查黄色球限制
+        for ball in prioritized_balls:
+            if ball['priority'] <= 0:
+                continue
+                
+            # 检查黄色球限制条件
+            yellow_allowed, reason = self.check_yellow_ball_restriction(current_balls, ball)
+            if not yellow_allowed:
+                logger.debug(f"跳过黄色球: {reason}")
+                continue
+                
+            # 检查转运数量限制
+            transfer_allowed, reason = self.check_transfer_limit(current_balls, ball)
+            if not transfer_allowed:
+                logger.debug(f"跳过小球: {reason}")
+                continue
+                
+            # 检查黄色球数量限制（不能超过2个）
+            # 统计当前已夹取的黄色球数量
+            yellow_count = sum(1 for b in current_balls if b['color'] == 'yellow')
+            if ball['color'] == 'yellow' and yellow_count >= 2:
+                logger.debug(f"黄色球数量已达上限（2个），跳过黄色球")
+                continue
+                
+            logger.info(f"选择目标: {ball['color']} 球 - 优先级: {ball['priority']}")
+            return ball
+            
+        logger.debug("没有找到符合条件的目标小球")
+        return None
     
     def set_first_pick_done(self):
         """
