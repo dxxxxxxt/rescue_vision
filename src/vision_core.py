@@ -43,7 +43,7 @@ class VisionCore:
         self.enemy_color = 'blue' if self.team_color == 'red' else 'red'
         self.ball_priorities = self.strategy_config.get('ball_priorities', {})
         self.ball_counts = self.strategy_config.get('ball_counts', {})
-        # 新规则：第一个夹取必须是己方球
+        # 第一个夹取必须是己方球
         self.first_pick = True  # 标记是否为第一次夹取
         
         # 优先使用safety_zones数组配置
@@ -263,9 +263,6 @@ class VisionCore:
         logger.error("无法获取有效图像帧，请检查摄像头连接")
         return None
         
-        logger.error("无法获取摄像头帧，请检查摄像头")
-        return None
-    
     def detect_all_balls(self, frame):
         """
         检测所有小球
@@ -379,12 +376,8 @@ class VisionCore:
                 logger.debug(f"跳过小球: {reason}")
                 continue
                 
-            # 检查黄色球数量限制（不能超过2个）
-            # 统计当前已夹取的黄色球数量
-            yellow_count = sum(1 for b in current_balls if b['color'] == 'yellow')
-            if ball['color'] == 'yellow' and yellow_count >= 2:
-                logger.debug(f"黄色球数量已达上限（2个），跳过黄色球")
-                continue
+            # 黄色球数量限制已在check_yellow_ball_restriction方法中检查
+            # 不需要在此处重复检查
                 
             logger.info(f"选择目标: {ball['color']} 球 - 优先级: {ball['priority']}")
             return ball
@@ -465,8 +458,15 @@ class VisionCore:
         :param target_ball: 目标小球
         :return: (是否允许夹取, 原因)
         """
+        # 统计当前已夹取的黄色球数量
+        yellow_count = sum(1 for b in balls if b['color'] == 'yellow')
+        
         # 黄色球必须单独转运
         if target_ball['color'] == 'yellow':
+            # 检查数量限制
+            if yellow_count >= 1:
+                return False, "黄色球数量已达上限（1个）"
+            # 检查单独转运规则
             if len(balls) > 0:
                 return False, "黄色球必须单独转运，当前已夹取其他小球"
             return True, ""
