@@ -335,23 +335,22 @@ class VisionCore:
         
         return sorted_balls
     
-    def get_best_target(self, balls, current_balls=[]):
+    def get_best_target(self, balls):
         """
         获取最佳目标小球
         :param balls: 检测到的小球列表
-        :param current_balls: 当前已夹取的小球列表（由于每次只夹一个，该参数实际无用，但保留兼容）
         :return: 最佳目标小球，若没有符合条件的则返回None
         """
         if not balls:
             return None
         
         # 过滤掉安全区内的小球
-        filtered_balls = []
-        for ball in balls:
-            if not self.is_ball_in_safety_zone(ball):
-                filtered_balls.append(ball)
-            else:
-                logger.debug(f"小球 (颜色: {ball['color']}, 坐标: ({ball['x']}, {ball['y']})) 在安全区内，将被过滤掉")
+        filtered_balls = [ball for ball in balls if not self.is_ball_in_safety_zone(ball)]
+        
+        # 记录被过滤的小球信息
+        if len(filtered_balls) != len(balls):
+            filtered_count = len(balls) - len(filtered_balls)
+            logger.debug(f"过滤掉 {filtered_count} 个安全区内的小球")
         
         if not filtered_balls:
             logger.debug("所有检测到的小球都在安全区内")
@@ -364,20 +363,17 @@ class VisionCore:
             if ball['priority'] <= 0:
                 continue
                 
-            # 检查黄色球限制条件
-            yellow_allowed, reason = self.check_yellow_ball_restriction(current_balls, ball)
+            # 检查黄色球限制条件（使用空列表作为当前已夹取的小球）
+            yellow_allowed, reason = self.check_yellow_ball_restriction([], ball)
             if not yellow_allowed:
                 logger.debug(f"跳过黄色球: {reason}")
                 continue
                 
-            # 检查转运数量限制
-            transfer_allowed, reason = self.check_transfer_limit(current_balls, ball)
+            # 检查转运数量限制（使用空列表作为当前已夹取的小球）
+            transfer_allowed, reason = self.check_transfer_limit([], ball)
             if not transfer_allowed:
                 logger.debug(f"跳过小球: {reason}")
                 continue
-                
-            # 黄色球数量限制已在check_yellow_ball_restriction方法中检查
-            # 不需要在此处重复检查
                 
             logger.info(f"选择目标: {ball['color']} 球 - 优先级: {ball['priority']}")
             return ball
@@ -619,35 +615,29 @@ class VisionCore:
         """
         处理单帧图像
         :param frame: BGR图像
-        :return: 处理结果（带标注的图像、检测到的小球、最佳目标），如果输入无效返回None, [], None
+        :return: 处理结果（带标注的图像、检测到的小球、最佳目标）
         """
         # 验证输入
         if frame is None or frame.size == 0:
             logger.error("输入图像为空或无效")
-            return None, [], None
+            return {"frame": None, "balls": [], "best_target": None}
         
-        # 确保图像可修改
+        # 创建图像副本
         try:
-            if frame.flags.writeable:
-                annotated_frame = frame.copy()
-            else:
-                logger.warning("输入图像不可写，创建可写副本")
-                annotated_frame = frame.copy()
+            annotated_frame = frame.copy()
+            if not annotated_frame.flags.writeable:
+                logger.warning("创建的图像副本仍不可写")
         except Exception as e:
-            logger.error(f"创建图像副本失败: {str(e)}")
-            return None, [], None
+            logger.error(f"创建图像副本失败: {e}")
+            return {"frame": None, "balls": [], "best_target": None}
         
         # 检测小球
         balls = []
         try:
-            balls = self.detect_all_balls(frame)
-            if not isinstance(balls, list):
-                logger.error("detect_all_balls返回的结果类型不正确")
-                balls = []
+            balls = self.detect_all_balls(frame) or []
         except Exception as detect_err:
-            # 记录错误但继续执行，不中断处理流程
+            # 记录错误但继续执行
             logger.error(f"小球检测失败: {detect_err}")
-            balls = []
         
         # 获取最佳目标
         best_target = None
@@ -693,7 +683,7 @@ class VisionCore:
             except Exception as mark_err:
                 logger.error(f"标记最佳目标失败: {mark_err}")
         
-        return {
+        return {    
             'frame': annotated_frame,
             'balls': balls,
             'best_target': best_target
@@ -759,19 +749,22 @@ class VisionCore:
                     if restart_count < max_restarts:
                         logger.info(f"尝试重新初始化摄像头，重启计数: {restart_count}/{max_restarts}")
                         # 释放旧的摄像头资源
+                        # 释放当前摄像头
                         if hasattr(self, 'camera') and self.camera:
                             self.camera.release()
                             self.camera = None
                         
-                        # 等待一段时间后重试
+                        # 等待后重试初始化
                         time.sleep(1)
                         try:
                             self.camera = self.init_camera()
+                            restart_count = 0  # 重置重试计数
                         except Exception as init_error:
                             logger.error(f"重新初始化摄像头失败: {init_error}")
-                    else:
-                        logger.error(f"达到最大重启次数，程序退出")
-                        break
+                            restart_count += 1
+                            if restart_count >= max_restarts:
+                                logger.error(f"达到最大重启次数 {max_restarts}，程序退出")
+                                break
                     
                     # 短暂暂停避免CPU占用过高
                     time.sleep(0.01)
