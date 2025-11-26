@@ -33,7 +33,7 @@ class TestColorDetector(unittest.TestCase):
         red_pixel_count = np.sum(mask > 0)
         
         self.assertGreater(red_pixel_count, 0, "红色球检测失败")
-        print(f"✅ 红色球检测通过，检测到 {red_pixel_count} 个红色像素")
+        print(f"红色球检测通过，检测到 {red_pixel_count} 个红色像素")
     
     def test_black_ball_detection(self):
         """测试黑色球检测"""
@@ -44,7 +44,7 @@ class TestColorDetector(unittest.TestCase):
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
         self.assertEqual(len(contours), 1, "应该检测到1个黑色球")
-        print("✅ 黑色球检测通过")
+        print("黑色球检测通过")
     
     def test_empty_image(self):
         """测试空图像处理"""
@@ -54,7 +54,7 @@ class TestColorDetector(unittest.TestCase):
         red_pixel_count = np.sum(mask > 0)
         
         self.assertEqual(red_pixel_count, 0, "空图像不应该检测到红色")
-        print("✅ 空图像处理通过")
+        print("空图像处理通过")
     
 
     
@@ -72,7 +72,7 @@ class TestColorDetector(unittest.TestCase):
                 
                 # 验证检测结果
                 self.assertGreater(color_pixel_count, 0, f"{color_name}颜色检测失败")
-                print(f"✅ {color_name}颜色检测通过，检测到 {color_pixel_count} 个像素")
+                print(f"{color_name}颜色检测通过，检测到 {color_pixel_count} 个像素")
     
     def test_yellow_ball_detection(self):
         """测试黄色球检测"""
@@ -83,7 +83,7 @@ class TestColorDetector(unittest.TestCase):
         yellow_pixel_count = np.sum(mask > 0)
         
         self.assertGreater(yellow_pixel_count, 0, "黄色球检测失败")
-        print(f"✅ 黄色球检测通过，检测到 {yellow_pixel_count} 个黄色像素")
+        print(f"黄色球检测通过，检测到 {yellow_pixel_count} 个黄色像素")
     
     def test_blue_ball_detection(self):
         """测试蓝色球检测"""
@@ -94,7 +94,7 @@ class TestColorDetector(unittest.TestCase):
         blue_pixel_count = np.sum(mask > 0)
         
         self.assertGreater(blue_pixel_count, 0, "蓝色球检测失败")
-        print(f"✅ 蓝色球检测通过，检测到 {blue_pixel_count} 个蓝色像素")
+        print(f"蓝色球检测通过，检测到 {blue_pixel_count} 个蓝色像素")
     
     def test_all_colors_in_one_image(self):
         """测试在同一图像中检测所有颜色"""
@@ -114,7 +114,7 @@ class TestColorDetector(unittest.TestCase):
             pixel_count = np.sum(mask > 0)
             
             self.assertGreater(pixel_count, 0, f"{color_name}在混合图像中检测失败")
-            print(f"✅ {color_name}在混合图像中检测通过，检测到 {pixel_count} 个像素")
+            print(f"{color_name}在混合图像中检测通过，检测到 {pixel_count} 个像素")
 
 if __name__ == '__main__':
     unittest.main()
