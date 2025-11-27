@@ -16,7 +16,7 @@ logger = get_logger(__name__)
 VIDEO_WIDTH = 640
 VIDEO_HEIGHT = 480
 FPS_TARGET = 30
-VIDEO_SOURCE = 0
+VIDEO_SOURCE = 9
 COLOR_NAME = 'blue'
 COLOR_DISPLAY_NAME = '蓝色小球(普通球/本方球)'
 
