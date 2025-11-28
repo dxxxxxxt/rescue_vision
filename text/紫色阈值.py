@@ -3,14 +3,6 @@ import numpy as np
 import json
 import os
 import time
-# 添加日志记录
-import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from src.utils.logger_utils import setup_logging, get_logger
-
-# 初始化日志
-setup_logging()
-logger = get_logger(__name__)
 
 # 全局配置
 VIDEO_WIDTH = 640
@@ -38,13 +30,9 @@ try:
     cap.set(cv2.CAP_PROP_FPS, FPS_TARGET)
     
     if not cap.isOpened():
-        logger.error("无法打开摄像头")
         exit(1)
-    
-    logger.info(f"成功打开摄像头，分辨率: {VIDEO_WIDTH}x{VIDEO_HEIGHT}")
-    logger.info(f"开始调整{COLOR_DISPLAY_NAME}阈值")
 except Exception as e:
-    logger.error(f"初始化摄像头时出错: {e}")
+    pass
     exit(1)
 
 # 添加配置文件保存路径
@@ -83,12 +71,12 @@ def load_thresholds():
                 cv2.setTrackbarPos('S Max', window_name, upper[1])
                 cv2.setTrackbarPos('V Max', window_name, upper[2])
                 
-                logger.info(f"已加载{COLOR_DISPLAY_NAME}保存的阈值配置: {config_file}")
+        
                 print(f"已加载{COLOR_DISPLAY_NAME}保存的阈值配置")
                 return True
-        logger.info(f"未找到{COLOR_DISPLAY_NAME}保存的阈值配置，使用默认值")
+
     except Exception as e:
-        logger.error(f"加载{COLOR_DISPLAY_NAME}阈值配置失败: {e}")
+        pass
         print(f"错误: 加载失败 - {e}")
     return False
 
@@ -119,10 +107,10 @@ def save_thresholds():
     try:
         with open(output_file, 'w') as f:
             json.dump(config_data, f, indent=2)
-        logger.info(f"{COLOR_DISPLAY_NAME}阈值配置已保存到: {output_file}")
+
         print(f"{COLOR_DISPLAY_NAME}阈值配置已保存到: {output_file}")
     except Exception as e:
-        logger.error(f"保存{COLOR_DISPLAY_NAME}阈值配置失败: {e}")
+        pass
         print(f"错误: 保存失败 - {e}")
     config_file = os.path.join(config_dir, f"hsv_thresholds_{COLOR_NAME}.json")
     try:
@@ -142,12 +130,12 @@ def save_thresholds():
                 cv2.setTrackbarPos('S Max', window_name, upper[1])
                 cv2.setTrackbarPos('V Max', window_name, upper[2])
                 
-                logger.info(f"已加载{COLOR_DISPLAY_NAME}保存的阈值配置: {config_file}")
+        
                 print(f"已加载{COLOR_DISPLAY_NAME}保存的阈值配置")
                 return True
-        logger.info(f"未找到{COLOR_DISPLAY_NAME}保存的阈值配置，使用默认值")
+
     except Exception as e:
-        logger.error(f"加载{COLOR_DISPLAY_NAME}阈值配置失败: {e}")
+        pass
         print(f"错误: 加载失败 - {e}")
     return False
 
@@ -190,12 +178,12 @@ while True:
             current_fps = fps_count / (current_time - fps_start_time)
             fps_start_time = current_time
             fps_count = 0
-            logger.info(f"视频处理FPS: {current_fps:.2f}")
+    
         
         # 获取帧
         ret, frame = cap.read()
         if not ret:
-            logger.warning("无法读取摄像头帧，重试...")
+    
             time.sleep(0.1)  # 短暂休眠后重试
             continue
 
@@ -254,7 +242,7 @@ while True:
         # 处理按键
         key = cv2.waitKey(1) & 0xFF
         if key == ord('q'):
-            logger.info("用户退出程序")
+    
             break
         elif key == ord('s'):
             # 保存阈值配置
@@ -270,10 +258,10 @@ while True:
             cv2.setTrackbarPos('H Max', window_name, DEFAULT_THRESHOLDS['H Max'])
             cv2.setTrackbarPos('S Max', window_name, DEFAULT_THRESHOLDS['S Max'])
             cv2.setTrackbarPos('V Max', window_name, DEFAULT_THRESHOLDS['V Max'])
-            logger.info(f"已恢复{COLOR_DISPLAY_NAME}默认阈值")
+    
             print(f"已恢复{COLOR_DISPLAY_NAME}默认阈值")
     except Exception as e:
-        logger.error(f"主循环中出错: {e}")
+        pass
         import traceback
         traceback.print_exc()
         # 继续运行而不是退出
@@ -284,6 +272,6 @@ try:
     if cap is not None:
         cap.release()
     cv2.destroyAllWindows()
-    logger.info(f"{COLOR_DISPLAY_NAME}阈值调整工具已成功关闭")
 except Exception as e:
-    logger.error(f"清理资源时出错: {e}")
+    pass
+    

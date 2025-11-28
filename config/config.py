@@ -3,12 +3,6 @@ import sys
 import json
 from typing import Tuple, Dict, Any, List, Optional
 from pathlib import Path
-# 使用相对路径导入logger_utils
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from src.utils.logger_utils import get_logger
-
-# 获取日志记录器
-logger = get_logger(__name__)
 
 # ==================== 配置文件路径管理 ====================
 # 获取配置文件根目录
@@ -46,9 +40,9 @@ class ConfigLoader:
             self.strategy_config = self._load_strategy_config()
             self.hsv_thresholds = self._load_hsv_thresholds()
             self._setup_derived_configs()
-            logger.info("配置加载器初始化成功")
+    
         except Exception as e:
-            logger.error(f"配置加载器初始化失败: {e}")
+    
             # 确保即使出错也有基本的配置可用
             self.strategy_config = {"team_color": DEFAULT_TEAM}
             self.hsv_thresholds = {}
@@ -59,10 +53,10 @@ class ConfigLoader:
             if STRATEGY_CONFIG_PATH.exists():
                 with open(STRATEGY_CONFIG_PATH, 'r', encoding='utf-8') as f:
                     config = json.load(f)
-                    logger.info(f"成功加载策略配置文件: {STRATEGY_CONFIG_PATH}")
+    
                     return config
             else:
-                logger.warning(f"策略配置文件不存在: {STRATEGY_CONFIG_PATH}，使用默认配置")
+
                 # 默认策略配置
                 return {
                     "team_color": DEFAULT_TEAM,
@@ -111,11 +105,11 @@ class ConfigLoader:
                     ]
                 }
         except json.JSONDecodeError as e:
-            logger.error(f"策略配置文件格式错误: {STRATEGY_CONFIG_PATH}, {e}，使用默认配置")
+            
             return {"team_color": DEFAULT_TEAM}
         except Exception as e:
-            logger.error(f"加载策略配置失败: {e}，使用最小默认配置")
-            return {"team_color": DEFAULT_TEAM}
+            pass
+        return {"team_color": DEFAULT_TEAM}
     
     def _load_hsv_thresholds(self) -> Dict[str, Any]:
         """加载HSV颜色阈值配置"""
@@ -123,10 +117,10 @@ class ConfigLoader:
             if HSV_THRESHOLDS_PATH.exists():
                 with open(HSV_THRESHOLDS_PATH, 'r', encoding='utf-8') as f:
                     thresholds = json.load(f)
-                    logger.info(f"成功加载HSV阈值配置: {HSV_THRESHOLDS_PATH}")
+    
                     return thresholds
             else:
-                logger.warning(f"HSV阈值配置文件不存在: {HSV_THRESHOLDS_PATH}，使用默认配置")
+
                 # 默认HSV阈值
                 return {
                     "red": [
@@ -144,10 +138,10 @@ class ConfigLoader:
                     ]
                 }
         except json.JSONDecodeError as e:
-            logger.error(f"HSV阈值配置文件格式错误: {HSV_THRESHOLDS_PATH}, {e}，使用默认配置")
+            
             return {}
         except Exception as e:
-            logger.error(f"加载HSV阈值配置失败: {e}，使用空配置")
+
             return {}
     
 
@@ -190,7 +184,7 @@ class ConfigLoader:
         team_color = self.strategy_config.get("team_color", DEFAULT_TEAM)
         # 验证队伍颜色的有效性
         if team_color not in ("blue", "red"):
-            logger.warning(f"无效的队伍颜色: {team_color}，使用默认值: {DEFAULT_TEAM}")
+
             return DEFAULT_TEAM
         return team_color
 
@@ -233,14 +227,11 @@ def _validate():
         height = STRATEGY_CONFIG.get('vision_params', {}).get('image_height', 480)
         safety_zones_count = len(config_loader.get_safety_zones())
         
-        logger.info(f"配置验证通过！")
-        logger.info(f"队伍: {team_color}")
-        logger.info(f"相机ID: {camera_id}")
-        logger.info(f"图像尺寸: {width}x{height}")
-        logger.info(f"安全区数量: {safety_zones_count}")
+   
     except AssertionError as e:
-        logger.error(f"配置验证失败: {e}")
+        pass
     except Exception as e:
-        logger.error(f"验证过程出错: {e}")
+        pass
+
 
 _validate()

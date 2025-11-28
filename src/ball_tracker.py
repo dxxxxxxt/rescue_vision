@@ -1,10 +1,6 @@
 import cv2
 import numpy as np
 from typing import List, Dict, Tuple, Optional, Union
-from utils.logger_utils import get_logger
-
-# 获取日志记录器
-logger = get_logger(__name__)
 
 class BallTracker:
     def __init__(self, min_radius=10, max_radius=100):
@@ -26,11 +22,9 @@ class BallTracker:
         """
         # 输入验证
         if mask is None or mask.size == 0:
-            logger.error("输入掩码无效")
             return []
             
         if not color_name or not isinstance(color_name, str):
-            logger.error("颜色名称无效")
             return []
         
         try:
@@ -64,13 +58,12 @@ class BallTracker:
                                 'circularity': circularity
                             })
                 except Exception as e:
-                    logger.warning(f"处理轮廓时出错: {e}")
+    
                     continue
             
-            logger.info(f"在{color_name}掩码中找到{len(balls)}个小球")
+    
             return balls
         except Exception as e:
-            logger.error(f"查找小球时出错: {e}")
             return []
     
     def track_balls(self, color_masks):
@@ -81,7 +74,6 @@ class BallTracker:
         """
         # 输入验证
         if not isinstance(color_masks, dict):
-            logger.error("颜色掩码参数必须是字典类型")
             return []
         
         try:
@@ -92,12 +84,9 @@ class BallTracker:
                     balls = self.find_balls(mask, color_name)
                     all_balls.extend(balls)
                 else:
-                    logger.warning(f"跳过无效的{color_name}掩码")
-            
-            logger.info(f"总共跟踪到{len(all_balls)}个小球")
+                    pass
             return all_balls
         except Exception as e:
-            logger.error(f"跟踪小球时出错: {e}")
             return []
     
     def draw_balls(self, image, balls):
@@ -109,11 +98,9 @@ class BallTracker:
         """
         # 输入验证
         if image is None or image.size == 0:
-            logger.error("输入图像无效")
             return None
             
         if balls is None:
-            logger.warning("没有小球数据")
             return image.copy()
         
         try:
@@ -131,7 +118,6 @@ class BallTracker:
                 try:
                     # 验证小球数据
                     if not isinstance(ball, dict) or 'x' not in ball or 'y' not in ball or 'radius' not in ball or 'color' not in ball:
-                        logger.warning("小球数据格式无效")
                         continue
                         
                     color = color_map.get(ball['color'], (255, 255, 255))
@@ -141,7 +127,6 @@ class BallTracker:
                     # 确保中心点在图像范围内
                     h, w = image.shape[:2]
                     if not (0 <= center[0] < w and 0 <= center[1] < h):
-                        logger.warning(f"小球中心({center})超出图像范围")
                         continue
                     
                     # 绘制圆圈
@@ -158,10 +143,9 @@ class BallTracker:
                     cv2.putText(result, text, (text_x, text_y), 
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
                 except Exception as e:
-                    logger.warning(f"绘制小球时出错: {e}")
+        
                     continue
             
             return result
         except Exception as e:
-            logger.error(f"绘制小球过程出错: {e}")
             return image.copy()

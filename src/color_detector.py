@@ -1,10 +1,10 @@
 import cv2
 import numpy as np
-from utils.logger_utils import get_logger
+
 
 class ColorDetector:
     def __init__(self, config=None):
-        self.logger = get_logger(__name__)
+
         
         # 默认HSV阈值配置
         self.default_hsv_config = {
@@ -72,7 +72,7 @@ class ColorDetector:
             return mask
             
         except Exception as e:
-            self.logger.error(f"检测{color}色时出错: {e}")
+
             return None
     
     def find_contours(self, mask, min_area=50):

@@ -26,21 +26,10 @@ import os
 # 添加项目根目录到Python路径（Windows兼容方式）
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-# 尝试导入日志工具，如果失败则创建简单的日志记录器
-try:
-    from src.utils.logger_utils import get_logger
-    logger_available = True
-except ImportError:
-    # 如果无法导入日志工具，创建一个简单的日志记录器
-    logger_available = False
-    import logging
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    def get_logger(name):
-        return logging.getLogger(name)
+
 
 class SerialDebugger:
     def __init__(self):
-        self.logger = get_logger("serial_debugger")
         self.ser = None
         self.is_connected = False
         self.receive_thread = None
